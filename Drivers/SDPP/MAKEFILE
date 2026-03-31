@@ -1,0 +1,25 @@
+# Makefile for the TU58 Device Driver project - RLA [12-Aug-94]
+
+CC=bcc -c -ms -Z -O -Ol -Oe
+ASM=tasm -mx
+
+DEPS=cprint.c driver.c sd.c sdmm.c cprint.h diskio.h driver.h integer.h sd.h standard.h 
+
+all: xtsd.sys
+
+.asm.obj:
+   $(ASM) $*
+
+xtsd.sys: header.obj $(DEPS)
+   $(CC) cprint.c
+   $(CC) sd.c
+   $(CC) sdmm.c
+   $(CC) driver.c
+   tlink -t -m -s -n header cprint sd sdmm driver, $@
+
+clean:
+   del *.obj
+   del *.map
+   del *.sys
+
+header.obj: header.asm
