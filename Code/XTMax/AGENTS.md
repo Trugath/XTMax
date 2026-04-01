@@ -12,7 +12,7 @@ The generated image is a driver/data disk (not DOS bootable) until system files 
 
 ## Blank screen after RAM test (hangs before DOS)
 
-1. **Firmware default** is now **`XTMAX_DISABLE_BOOTROM_MAP` = `1`**: the Teensy does **not** map the option ROM at `0xCE000` or the SD MMIO page unless you set it back to **`0`**. **Reflash** after pulling this tree so you are not still running an old build with ROM enabled.
+1. For machines that blank or hang after the RAM test, set **`XTMAX_DISABLE_BOOTROM_MAP` = `1`** so the Teensy does **not** map the option ROM at `0xCE000` or the trailing SD MMIO page. Reflash after changing it.
 2. The option ROM can **clear the screen** and **stall** (SD init) **even with no SD card**. With ROM mapping off, use **`XTSD.SYS`** from floppy for SD.
 3. If it is **still** blank, set **`XTMAX_SKIP_PSRAM_INIT` to `1`** (no PSRAM / EMS not needed yet) and reflash — skips quad-SPI PSRAM setup at boot.
 4. **Isolate:** boot the 5155 **with XTMax removed**. If the machine still blanks, the fault is not the Teensy sketch (video, RAM, or another card).

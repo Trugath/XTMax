@@ -450,9 +450,9 @@ inline void SD_SPI_TXRXBit()  {
     GPIO7_DR = GPIO7_DR | 0x10000000;  // Trigger out
     sd_pin_outputs = (sd_spi_cs_n<<17) | (0x1<<13) | databit_out;                      // SD_CS_n - SD_CLK - SD_MOSI
     GPIO8_DR = sd_pin_outputs + MUX_DATA_n_HIGH + CHRDY_OE_n_LOW + DATA_OE_n_HIGH;
+    delayNanoseconds(SD_SPI_BIT_TIME_NS);
     sd_spi_datain = sd_spi_datain << 1;
     if ((GPIO8_DR&0x00004000)!=0) {sd_spi_datain = sd_spi_datain | 0x01; }             // Shift in MISO data
-    delayNanoseconds(SD_SPI_BIT_TIME_NS);
 
     // Drive CLK and MOSI low
     //

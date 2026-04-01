@@ -2,7 +2,7 @@
 
 ## Option ROM disabled (`XTMAX_DISABLE_BOOTROM_MAP`)
 
-If the machine **hangs or the screen goes blank right after the RAM test**, the BIOS may be executing the XTMax **option ROM** before DOS. **Default in this tree is `1`:** the Teensy does **not** map `0xCE000` or the trailing SD page unless you set **`XTMAX_DISABLE_BOOTROM_MAP` to `0`**. Reflash after changing. For SD without ROM, use **`XTSD.SYS`**. If problems persist, try **`XTMAX_SKIP_PSRAM_INIT` = `1`**. See [AGENTS.md](AGENTS.md).
+If the machine **hangs or the screen goes blank right after the RAM test**, the BIOS may be executing the XTMax **option ROM** before DOS. Set **`XTMAX_DISABLE_BOOTROM_MAP` to `1`** to keep the Teensy from mapping `0xCE000` or the trailing SD page, then reflash. For SD without ROM, use **`XTSD.SYS`**. If problems persist, try **`XTMAX_SKIP_PSRAM_INIT` = `1`**. See [AGENTS.md](AGENTS.md).
 
 ## XTMax firmware decode (fixed in `XTMax.ino`)
 

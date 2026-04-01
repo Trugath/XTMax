@@ -31,6 +31,7 @@ cpu 8086    ; ensure we remain compatible with 8086
 ; Whether we will try to use our own bootstrap code.
 ;
 %define USE_BOOTSTRAP
+%define SD_FLAG_BLOCK_ADDRESSING 0x01
 
 ;
 ; Whether we are going to rename the BIOS's 1st disk to be the second disk.
@@ -546,6 +547,7 @@ func_02_read_sector:
 %endif
     mov ax, TEMP_LO         ; restore lba
     mov bx, TEMP_HI         ; restore lba
+    call adjust_sd_command_address
     mov cl, 0x51            ; CMD17
     call send_sd_read_write_cmd
     jc .error
@@ -673,6 +675,7 @@ func_03_write_sector:
 %endif
     mov ax, TEMP_LO         ; restore lba
     mov bx, TEMP_HI         ; restore lba
+    call adjust_sd_command_address
     mov cl, 0x58            ; CMD24
     call send_sd_read_write_cmd
     jc .error
@@ -1155,9 +1158,11 @@ init_sd:
     push bx
     push cx
     push dx
+    push di
     push si
     mov ax, cs
     mov ds, ax
+    mov byte [sd_flags], 0
     mov dx, REG_CS
     mov al, 1               ; deassert chip select
 .power_up_delay:
@@ -1181,8 +1186,9 @@ init_sd:
     mov ax, send_cmd0_msg
     call print_string
 %endif
+    xor di, di
     mov si, cmd0
-    mov cx, 1               ; response is 1 byte
+    xor cx, cx
     mov ah, 1               ; expect idle state
     call send_sd_init_cmd
     jnc .cmd8
@@ -1197,38 +1203,121 @@ init_sd:
     mov ax, send_cmd8_msg
     call print_string
 %endif
+    mov di, sd_response_buffer
     mov si, cmd8
-    mov cx, 5               ; response is 5 bytes
+    mov cx, 4               ; trailing R7 payload
     mov ah, 1               ; expect idle state
     call send_sd_init_cmd
-    jc .exit
-.acmd41:
+    jc .legacy_init
+    cmp byte [sd_response_buffer+2], 0x01
+    jne .legacy_init
+    cmp byte [sd_response_buffer+3], 0xAA
+    jne .legacy_init
+.v2_acmd41:
     mov dx, REG_TIMEOUT
     mov al, 250             ; 2.5 s
     out dx, al
-.retry_acmd41:
+.retry_v2_acmd41:
 %ifdef DEBUG_IO
     mov ax, send_acmd41_msg
     call print_string
 %endif
+    xor di, di
     mov si, cmd55
-    mov cx, 1               ; response is 1 byte
+    xor cx, cx
     mov ah, 1               ; expect idle state
     call send_sd_init_cmd
-    ; TODO: (older cards): handle v1 vs v2
+    jc .retry_v2_timeout
+    xor di, di
     mov si, acmd41
-    mov cx, 1               ; response is 1 byte
+    xor cx, cx
     mov ah, 0               ; expect ready state
     call send_sd_init_cmd
-    jnc .exit
+    jnc .read_ocr
+.retry_v2_timeout:
     mov dx, REG_TIMEOUT
     in al, dx
     test al, al
-    jz .retry_acmd41
+    jz .retry_v2_acmd41
     stc
+    jmp .exit
+.read_ocr:
+    mov di, sd_response_buffer
+    mov si, cmd58
+    mov cx, 4               ; trailing OCR payload
+    mov ah, 0               ; expect ready state
+    call send_sd_init_cmd
+    jc .exit
+    test byte [sd_response_buffer], 0x40
+    jz .exit
+    or byte [sd_flags], SD_FLAG_BLOCK_ADDRESSING
+    jmp .exit
+.legacy_init:
+    xor di, di
+    mov si, cmd55
+    xor cx, cx
+    mov ah, 1
+    call send_sd_init_cmd
+    jc .legacy_mmc
+    xor di, di
+    mov si, acmd41_legacy
+    xor cx, cx
+    mov ah, 1
+    call send_sd_init_cmd
+    jc .legacy_mmc
+.legacy_acmd41:
+    mov dx, REG_TIMEOUT
+    mov al, 250             ; 2.5 s
+    out dx, al
+.retry_legacy_acmd41:
+    xor di, di
+    mov si, cmd55
+    xor cx, cx
+    mov ah, 1
+    call send_sd_init_cmd
+    jc .retry_legacy_timeout
+    xor di, di
+    mov si, acmd41_legacy
+    xor cx, cx
+    mov ah, 0
+    call send_sd_init_cmd
+    jnc .set_block_length
+.retry_legacy_timeout:
+    mov dx, REG_TIMEOUT
+    in al, dx
+    test al, al
+    jz .retry_legacy_acmd41
+    stc
+    jmp .exit
+.legacy_mmc:
+    mov dx, REG_TIMEOUT
+    mov al, 250             ; 2.5 s
+    out dx, al
+.retry_cmd1:
+    xor di, di
+    mov si, cmd1
+    xor cx, cx
+    mov ah, 0
+    call send_sd_init_cmd
+    jnc .set_block_length
+    mov dx, REG_TIMEOUT
+    in al, dx
+    test al, al
+    jz .retry_cmd1
+    stc
+    jmp .exit
+.set_block_length:
+    xor di, di
+    mov si, cmd16
+    xor cx, cx
+    mov ah, 0
+    call send_sd_init_cmd
 .exit:
-    ; TODO: (older cards): retrieve SDHC flag
+    mov dx, REG_CS
+    mov al, 1
+    out dx, al
     pop si
+    pop di
     pop dx
     pop cx
     pop bx
@@ -1248,9 +1337,10 @@ init_sd:
 ;
 ; Send an initialization command to the SD card
 ; in:  DS:SI = command buffer
-;      CX = response size (in bytes)
+;      CX = response payload size after R1 (in bytes)
+;      DS:DI = optional buffer for response payload (DI=0 to discard)
 ;      AH = expected highest status
-; out: AX = <TRASH>
+; out: AL = R1 response byte
 ;      CX = <TRASH>
 ;      DX = <TRASH>
 ;      SI = <TRASH>
@@ -1277,23 +1367,34 @@ send_sd_init_cmd:
     loope .receive_r1
     pop cx
     cmp al, ah
+    mov ah, al
     jbe .receive_payload
     stc
     jmp .settle_after
 .receive_payload:
     clc
+    jcxz .settle_after
 .receive_byte:
     in al, dx
+    or di, di
+    jz .next_byte
+    stosb
+.next_byte:
     loop .receive_byte
 .settle_after:
     mov al, 0xff
     out dx, al
+    mov al, ah
     ret
 
 cmd0        db  0x40, 0x00, 0x00, 0x00, 0x00, 0x95
 cmd8        db  0x48, 0x00, 0x00, 0x01, 0xAA, 0x87
+cmd1        db  0x41, 0x00, 0x00, 0x00, 0x00, 0x01
+cmd16       db  0x50, 0x00, 0x00, 0x02, 0x00, 0x01
 cmd55       db  0x77, 0x00, 0x00, 0x00, 0x00, 0x01
 acmd41      db  0x69, 0x40, 0x00, 0x00, 0x00, 0x01
+acmd41_legacy db 0x69, 0x00, 0x00, 0x00, 0x00, 0x01
+cmd58       db  0x7A, 0x00, 0x00, 0x00, 0x00, 0x01
 
 ;
 ; Send a read or write command to the SD card
@@ -1338,6 +1439,25 @@ send_sd_read_write_cmd:
     ret
 
 ;
+; Convert an LBA into the SD command argument expected by the current card.
+; SDHC/SDXC use block addressing; SDSC/MMC use byte addressing.
+; in:  BX:AX = LBA
+; out: BX:AX = command argument
+;
+adjust_sd_command_address:
+    test byte [sd_flags], SD_FLAG_BLOCK_ADDRESSING
+    jnz .done
+    push cx
+    mov cx, 9
+.shift_left:
+    shl ax, 1
+    rcl bx, 1
+    loop .shift_left
+    pop cx
+.done:
+    ret
+
+;
 ; General utilities
 ;
 
@@ -1366,6 +1486,8 @@ debug_handler:
 welcome_msg     db 'BootROM for XTMax v1.0', 0xD, 0xA
                 db 'Copyright (c) 2025 Matthieu Bucchianeri', 0xD, 0xA, 0
 rom_base_msg    db 'ROM Base Address        = ', 0
+sd_flags        db 0
+sd_response_buffer db 0, 0, 0, 0
 init_ok_msg     db 'SD Card initialized successfully', 0xD, 0xA, 0
 init_error_msg  db 'SD Card failed to initialize', 0xD, 0xA, 0
 disk_id_msg     db 'Fixed Disk ID           = ', 0
