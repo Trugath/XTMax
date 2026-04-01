@@ -1,0 +1,14 @@
+# XTMax local MAME configuration
+
+homepath               @HOMEPATH@
+rompath                @ROMPATH@
+cfg_directory          @CFGDIR@
+nvram_directory        @NVRAMDIR@
+input_directory        @INPUTDIR@
+state_directory        @STATEDIR@
+snapshot_directory     @SNAPDIR@
+diff_directory         @DIFFDIR@
+
+skip_gameinfo          1
+confirm_quit           0
+plugins                0
