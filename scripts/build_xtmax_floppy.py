@@ -17,7 +17,7 @@ import urllib.request
 from pyfatfs.PyFat import PyFat
 from pyfatfs.PyFatFS import PyFatFS
 
-# Raw files from MicroCoreLabs Projects tree (same as Drivers/README.md)
+# Raw files from MicroCoreLabs Projects tree (same binaries described in software/README.md)
 DRIVER_BASE = (
     "https://raw.githubusercontent.com/MicroCoreLabs/Projects/master/XTMax/Drivers/"
 )
@@ -57,7 +57,7 @@ Files on this disk:
   XTSD.SYS     SD card (parallel-port style) if BIOS option ROM does NOT run
   XTEMM.EXE    LIM 4.0 EMS (PSRAM on Teensy)
   XTUMBS.SYS   Upper Memory Blocks in 0xA0000-0xEFFFF
-  TEST!UMB.EXE UMB test (see Drivers/README.md)
+  TEST!UMB.EXE UMB test (see software/README.md)
 
 CONFIG.SYS
 ----------
@@ -75,10 +75,10 @@ Edit CONFIG.SYS on this disk. Uncomment ONE strategy at a time.
   Avoid overlap with video RAM, ROMs, or EMS window.
 
 Full documentation:
-  ..\\Drivers\\README.md (in the XTMax repository)
+  ..\\software\\README.md (in the XTMax repository)
 
 IBM 5155 / I/O:
-  See Code\\XTMax\\IO_PORTS.md (MMAN 0x260, SD 0x280-0x287).
+  See firmware\\XTMax\\IO_PORTS.md (MMAN 0x260, SD 0x280-0x287).
 """.replace("\n", "\r\n").encode("cp437", errors="replace")
 
 CONFIG_SYS = b"""\
@@ -182,7 +182,7 @@ def main() -> None:
         "-o",
         "--output",
         default=os.path.join(
-            os.path.dirname(__file__), "..", "Floppy", "xtmax360.img"
+            os.path.dirname(__file__), "..", "images", "xtmax360.img"
         ),
         help="Output .img path",
     )

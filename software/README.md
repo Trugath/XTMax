@@ -8,7 +8,7 @@ The BIOS Extension ROM presents the SD Card on the Teensy as a fixed disk drive 
 storage in MS-DOS and other operating systems using INT13h fixed disk services (note: OS/2 does not use INT13h fixed
 disk services and therefore cannot use the SD Card).
 
-The ROM can be relocated by changing the address `BOOTROM_ADDR` in the [`bootrom.h`](../Code/XTMax/bootrom.h) and
+The ROM can be relocated by changing the address `BOOTROM_ADDR` in the [`bootrom.h`](../firmware/teensy/bootrom.h) and
 re-deploying the Teensy sketch. The address **must** be a multiple of 2048 bytes (2KB) and must be within the range
 0xC8000-DF800 (this is the range that the BIOS searches).
 

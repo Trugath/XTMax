@@ -6,8 +6,8 @@ import unittest
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-FIRMWARE = REPO_ROOT / "Code" / "XTMax" / "XTMax.ino"
-BOOTROM = REPO_ROOT / "Drivers" / "BootROM" / "bootrom.asm"
+FIRMWARE = REPO_ROOT / "firmware" / "teensy" / "XTMax.ino"
+BOOTROM = REPO_ROOT / "software" / "bootrom" / "bootrom.asm"
 
 
 class SDCardStackTests(unittest.TestCase):

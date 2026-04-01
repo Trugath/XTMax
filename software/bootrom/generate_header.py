@@ -22,6 +22,6 @@ def to_c_array(values, ctype="float", name="table", formatter=str, colcount=8):
     # assemble components into the complete string
     return '{} {}[] = {{\n    {}}};'.format(ctype, name, body)
 
-with open("../../Code/XTMax/bootrom.h", "w") as f:
+with open("../../firmware/teensy/bootrom.h", "w") as f:
     f.write("#define BOOTROM_ADDR {}\n".format(hex(segment << 4)))
     f.write(to_c_array(bitstream, ctype="unsigned char", name="BOOTROM", colcount=16))

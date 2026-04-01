@@ -11,9 +11,9 @@ Build or refresh from the repository root:
 
 720 KiB image:
 
-  python scripts/build_xtmax_floppy.py --size 720 -o Floppy/xtmax720.img
+  python scripts/build_xtmax_floppy.py --size 720 -o images/xtmax720.img
 
-Drivers are downloaded from MicroCoreLabs GitHub (see ../Drivers/README.md).
+Drivers are downloaded from MicroCoreLabs GitHub (see ../software/README.md).
 
 To make the image bootable, write DOS system files to it from DOS:
 

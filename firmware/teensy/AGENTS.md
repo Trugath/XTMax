@@ -7,7 +7,7 @@
 
 ## MS-DOS driver floppy (.img)
 
-From the **XTMax repository root** (parent of `Code/`): run `python scripts/build_xtmax_floppy.py` after `pip install -r scripts/requirements-floppy.txt`. Output: [`Floppy/xtmax360.img`](../../Floppy/xtmax360.img). See [`Floppy/README.txt`](../../Floppy/README.txt).
+From the **XTMax repository root**: run `python scripts/build_xtmax_floppy.py` after `pip install -r scripts/requirements-floppy.txt`. Output: [`images/xtmax360.img`](../../images/xtmax360.img). See [`images/README.txt`](../../images/README.txt).
 The generated image is a driver/data disk (not DOS bootable) until system files are installed with `SYS A:`.
 
 ## Blank screen after RAM test (hangs before DOS)
@@ -16,7 +16,7 @@ The generated image is a driver/data disk (not DOS bootable) until system files 
 2. The option ROM can **clear the screen** and **stall** (SD init) **even with no SD card**. With ROM mapping off, use **`XTSD.SYS`** from floppy for SD.
 3. If it is **still** blank, set **`XTMAX_SKIP_PSRAM_INIT` to `1`** (no PSRAM / EMS not needed yet) and reflash — skips quad-SPI PSRAM setup at boot.
 4. **Isolate:** boot the 5155 **with XTMax removed**. If the machine still blanks, the fault is not the Teensy sketch (video, RAM, or another card).
-5. On IBM 5155-class systems, keep BootROM built with **`QUIET_VIDEO_OUTPUT`** (`Drivers/BootROM/bootrom.asm`) to suppress ROM INT 10h teletype output that can blank the display.
+5. On IBM 5155-class systems, keep BootROM built with **`QUIET_VIDEO_OUTPUT`** ([`bootrom.asm`](../../software/bootrom/bootrom.asm)) to suppress ROM INT 10h teletype output that can blank the display.
 
 ## Performance tuning (firmware)
 
