@@ -2,6 +2,10 @@
 
 XTMax is an 8-bit ISA expansion card built around a Teensy 4.1. This repository contains the Teensy firmware, the BIOS extension ROM and DOS-side storage/memory drivers, floppy image tooling, and KiCad hardware files.
 
+This repository is a forked extraction of the XTMax fragment originally published in the MicroCoreLabs Projects monorepo at [`XTMax/Code/XTMax`](https://github.com/MicroCoreLabs/Projects/tree/master/XTMax/Code/XTMax).
+
+Unless a subdirectory or file says otherwise, this fork is distributed under the MIT license in [LICENSE](./LICENSE). Some bundled components keep their own original licensing, for example [software/sd/LICENSE.TXT](./software/sd/LICENSE.TXT).
+
 ## Repository Layout
 
 - [`firmware/teensy`](./firmware/teensy): Teensy 4.1 firmware, generated Boot ROM header, and machine-specific notes.
