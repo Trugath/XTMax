@@ -78,8 +78,12 @@ Phase 1 is intentionally narrow:
 - exposes the XTMax SD ports at `0x280-0x287`
 - stubs the SD path to a deterministic timeout so the Boot ROM can execute and reach its failure path
 
+The current patch is now effectively a phase-2 storage slice:
+- the SD command path is modeled at the byte-stream level
+- the ROM-adjacent SD window at `0xCE800-0xCEFFF` is modeled
+- a raw host image can back the emulated SD card through `XTMAX_MAME_SD_IMAGE`
+
 What phase 1 does not emulate yet:
-- real SD card command/data behavior
 - PSRAM backing
 - EMS/UMB memory windows
 - the Teensy firmware itself
@@ -108,7 +112,22 @@ By default that uses:
 - machine: `ibm5160`
 - BIOS: `rev2`
 - slot: `isa5`
-- expected text: `BootROM for XTMax v1.0` and `SD Card failed to initialize`
+- a raw SD image at `harness/mame/artifacts/xtmax-sd.img`
+- expected text: `BootROM for XTMax v1.0` and `SD Card initialized successfully`
+
+That SD image is created automatically on first run and is treated as raw 512-byte sectors.
+
+To force the old no-card failure-path test instead:
+
+```bash
+XTMAX_MAME_NO_SD_IMAGE=1 ./harness/mame/run-xtmax-device-tests.sh
+```
+
+To point the device model at a specific raw image:
+
+```bash
+XTMAX_MAME_SD_IMAGE=/path/to/disk.img ./harness/mame/run-xtmax-device-tests.sh
+```
 
 This keeps the custom MAME work completely outside the main repo history while still letting the repo carry the patchset and automation.
 

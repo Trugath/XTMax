@@ -1,8 +1,6 @@
-diff --git a/scripts/src/bus.lua b/scripts/src/bus.lua
-index 2a1d953..e7cf766 100644
 --- a/scripts/src/bus.lua
 +++ b/scripts/src/bus.lua
-@@ -1849,6 +1849,8 @@ if (BUSES["ISA"]~=null) then
+@@ -1849,6 +1849,8 @@
  		MAME_DIR .. "src/devices/bus/isa/xsu_cards.cpp",
  		MAME_DIR .. "src/devices/bus/isa/xsu_cards.h",
  		MAME_DIR .. "src/devices/bus/isa/xtide.cpp",
@@ -11,11 +9,9 @@ index 2a1d953..e7cf766 100644
  		MAME_DIR .. "src/devices/bus/isa/xtide.h",
  	}
  end
-diff --git a/src/devices/bus/isa/isa_cards.cpp b/src/devices/bus/isa/isa_cards.cpp
-index ccf4ccf..239d476 100644
 --- a/src/devices/bus/isa/isa_cards.cpp
 +++ b/src/devices/bus/isa/isa_cards.cpp
-@@ -29,6 +29,7 @@
+@@ -33,6 +33,7 @@
  #include "wdxt_gen.h"
  #include "ide.h"
  #include "xtide.h"
@@ -23,7 +19,7 @@ index ccf4ccf..239d476 100644
  #include "side116.h"
  #include "acb2072.h"
  #include "aha1542b.h"
-@@ -110,6 +111,7 @@ void pc_isa8_cards(device_slot_interface &device)
+@@ -119,6 +120,7 @@
  	device.option_add("fdcmag", ISA8_FDCMAG);
  	device.option_add("wdxt_gen", ISA8_WDXT_GEN);
  	device.option_add("xtide", ISA8_XTIDE);
@@ -31,43 +27,55 @@ index ccf4ccf..239d476 100644
  	device.option_add("side116", ISA8_SIDE116);
  	device.option_add("hdc", ISA8_HDC);
  	device.option_add("adlib", ISA8_ADLIB);
-diff --git a/src/devices/bus/isa/xtmax.cpp b/src/devices/bus/isa/xtmax.cpp
-new file mode 100644
-index 0000000..65188f0
---- /dev/null
+--- a/src/devices/bus/isa/xtmax.cpp
 +++ b/src/devices/bus/isa/xtmax.cpp
-@@ -0,0 +1,145 @@
+@@ -0,0 +1,449 @@
 +// license:BSD-3-Clause
 +// copyright-holders:OpenAI
 +/***************************************************************************
 +
-+    XTMax phase-1 model
++    XTMax phase-2 model
 +
 +    This models the XT-visible contract only:
 +    - option ROM at 0xCE000
-+    - MMAN register block at 0x260-0x26f
++    - SD streaming window at 0xCE800-0xCEFFF
++    - MMAN register block at 0x260-0x26F
 +    - SD register block at 0x280-0x287
 +
-+    Phase 1 intentionally stubs the SD path to a deterministic timeout/fail
-+    response so the option ROM path can be exercised without emulating the
-+    Teensy firmware, SD SPI signalling, or PSRAM mapping yet.
++    The Teensy firmware is not emulated. Instead, this device models the
++    external behavior the XT sees and optionally backs the SD path with a raw
++    host image specified by the XTMAX_MAME_SD_IMAGE environment variable.
 +
 +***************************************************************************/
 +
 +#include "emu.h"
 +#include "xtmax.h"
 +
++#include "osdcore.h"
++
 +#include <algorithm>
++#include <array>
++#include <cstring>
++#include <ios>
 +
 +
 +namespace {
 +
 +constexpr offs_t XTMAX_ROM_BASE = 0xce000;
 +constexpr offs_t XTMAX_ROM_END = XTMAX_ROM_BASE + 0x07ff;
++constexpr offs_t XTMAX_SD_WINDOW_BASE = XTMAX_ROM_END + 1;
++constexpr offs_t XTMAX_SD_WINDOW_END = XTMAX_SD_WINDOW_BASE + 0x07ff;
 +constexpr offs_t XTMAX_MMAN_BASE = 0x260;
 +constexpr offs_t XTMAX_MMAN_END = XTMAX_MMAN_BASE + 0x0f;
 +constexpr offs_t XTMAX_SD_BASE = 0x280;
 +constexpr offs_t XTMAX_SD_END = XTMAX_SD_BASE + 0x07;
++
++constexpr uint32_t SD_SECTOR_SIZE = 512;
++constexpr uint8_t SD_R1_IDLE = 0x01;
++constexpr uint8_t SD_R1_READY = 0x00;
++constexpr uint8_t SD_R1_ILLEGAL = 0x04;
++constexpr uint8_t SD_DATA_TOKEN = 0xfe;
++constexpr uint8_t SD_DATA_ACCEPTED = 0x05;
 +
 +} // anonymous namespace
 +
@@ -76,7 +84,7 @@ index 0000000..65188f0
 +	ROM_LOAD("xtmax_bootrom.bin", 0x000000, 0x000800, CRC(77bcb6cc) SHA1(788bbaab2d49c66bbc62061f5192bdf0de42a3c8))
 +ROM_END
 +
-+DEFINE_DEVICE_TYPE(ISA8_XTMAX, xtmax_device, "xtmax", "XTMax phase-1 adapter")
++DEFINE_DEVICE_TYPE(ISA8_XTMAX, xtmax_device, "xtmax", "XTMax phase-2 adapter")
 +
 +const tiny_rom_entry *xtmax_device::device_rom_region() const
 +{
@@ -86,10 +94,19 @@ index 0000000..65188f0
 +xtmax_device::xtmax_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
 +	: device_t(mconfig, ISA8_XTMAX, tag, owner, clock)
 +	, device_isa8_card_interface(mconfig, *this)
-+	, m_sd_last_write(0xff)
 +	, m_sd_config(0x00)
-+	, m_sd_cs(0x00)
++	, m_sd_cs(0x01)
 +	, m_sd_timeout(0x01)
++	, m_sd_cmd_pos(0)
++	, m_sd_resp_head(0)
++	, m_sd_resp_count(0)
++	, m_sd_write_pos(0)
++	, m_sd_pending_lba(0)
++	, m_sd_selected(false)
++	, m_sd_initialized(false)
++	, m_sd_app_cmd(false)
++	, m_sd_expect_write_token(false)
++	, m_sd_expect_write_data(false)
 +{
 +}
 +
@@ -99,24 +116,287 @@ index 0000000..65188f0
 +
 +	save_item(NAME(m_mman));
 +	save_item(NAME(m_sd_scratch));
-+	save_item(NAME(m_sd_last_write));
 +	save_item(NAME(m_sd_config));
 +	save_item(NAME(m_sd_cs));
 +	save_item(NAME(m_sd_timeout));
++	save_item(NAME(m_sd_cmd));
++	save_item(NAME(m_sd_resp));
++	save_item(NAME(m_sd_write_buffer));
++	save_item(NAME(m_sd_cmd_pos));
++	save_item(NAME(m_sd_resp_head));
++	save_item(NAME(m_sd_resp_count));
++	save_item(NAME(m_sd_write_pos));
++	save_item(NAME(m_sd_pending_lba));
++	save_item(NAME(m_sd_selected));
++	save_item(NAME(m_sd_initialized));
++	save_item(NAME(m_sd_app_cmd));
++	save_item(NAME(m_sd_expect_write_token));
++	save_item(NAME(m_sd_expect_write_data));
 +}
 +
 +void xtmax_device::device_reset()
 +{
 +	std::fill(std::begin(m_mman), std::end(m_mman), 0xff);
 +	std::fill(std::begin(m_sd_scratch), std::end(m_sd_scratch), 0x00);
-+	m_sd_last_write = 0xff;
++	std::fill(std::begin(m_sd_cmd), std::end(m_sd_cmd), 0x00);
++	std::fill(std::begin(m_sd_resp), std::end(m_sd_resp), 0xff);
++	std::fill(std::begin(m_sd_write_buffer), std::end(m_sd_write_buffer), 0x00);
++
 +	m_sd_config = 0x00;
-+	m_sd_cs = 0x00;
++	m_sd_cs = 0x01;
 +	m_sd_timeout = 0x01;
++	m_sd_selected = false;
++	m_sd_initialized = false;
++	m_sd_app_cmd = false;
++	m_sd_pending_lba = 0;
++
++	reset_sd_transaction();
++	reopen_sd_image();
 +
 +	m_isa->install_rom(this, XTMAX_ROM_BASE, XTMAX_ROM_END, "bootrom");
++	m_isa->install_memory(XTMAX_SD_WINDOW_BASE, XTMAX_SD_WINDOW_END, read8sm_delegate(*this, FUNC(xtmax_device::sd_window_r)), write8sm_delegate(*this, FUNC(xtmax_device::sd_window_w)));
 +	m_isa->install_device(XTMAX_MMAN_BASE, XTMAX_MMAN_END, read8sm_delegate(*this, FUNC(xtmax_device::mman_r)), write8sm_delegate(*this, FUNC(xtmax_device::mman_w)));
 +	m_isa->install_device(XTMAX_SD_BASE, XTMAX_SD_END, read8sm_delegate(*this, FUNC(xtmax_device::sd_r)), write8sm_delegate(*this, FUNC(xtmax_device::sd_w)));
++}
++
++bool xtmax_device::image_ready() const
++{
++	return m_sd_image.is_open();
++}
++
++void xtmax_device::reopen_sd_image()
++{
++	if (m_sd_image.is_open())
++		m_sd_image.close();
++
++	char const *const image_path = osd_getenv("XTMAX_MAME_SD_IMAGE");
++	if (!image_path || !image_path[0])
++		return;
++
++	m_sd_image.open(image_path, std::ios::in | std::ios::out | std::ios::binary);
++	if (!m_sd_image.is_open())
++	{
++		std::ofstream create(image_path, std::ios::binary);
++		create.close();
++		m_sd_image.open(image_path, std::ios::in | std::ios::out | std::ios::binary);
++	}
++
++	if (!m_sd_image.is_open())
++		logerror("xtmax: failed to open SD image '%s'\n", image_path);
++}
++
++void xtmax_device::reset_sd_transaction()
++{
++	m_sd_cmd_pos = 0;
++	m_sd_resp_head = 0;
++	m_sd_resp_count = 0;
++	m_sd_write_pos = 0;
++	m_sd_expect_write_token = false;
++	m_sd_expect_write_data = false;
++}
++
++void xtmax_device::queue_sd_response(uint8_t data)
++{
++	if (m_sd_resp_count >= std::size(m_sd_resp))
++		return;
++
++	uint16_t const tail = (m_sd_resp_head + m_sd_resp_count) % std::size(m_sd_resp);
++	m_sd_resp[tail] = data;
++	++m_sd_resp_count;
++}
++
++void xtmax_device::queue_sd_sector(uint32_t lba)
++{
++	std::array<uint8_t, SD_SECTOR_SIZE> buffer{};
++
++	if (image_ready())
++	{
++		m_sd_image.clear();
++		m_sd_image.seekg(static_cast<std::streamoff>(lba) * SD_SECTOR_SIZE, std::ios::beg);
++		if (m_sd_image.good())
++		{
++			m_sd_image.read(reinterpret_cast<char *>(buffer.data()), buffer.size());
++			if (m_sd_image.bad())
++				m_sd_image.clear();
++		}
++	}
++
++	queue_sd_response(SD_DATA_TOKEN);
++	for (uint8_t byte : buffer)
++		queue_sd_response(byte);
++	queue_sd_response(0xff);
++	queue_sd_response(0xff);
++}
++
++void xtmax_device::commit_sd_sector(uint32_t lba)
++{
++	if (image_ready())
++	{
++		m_sd_image.clear();
++		m_sd_image.seekp(static_cast<std::streamoff>(lba) * SD_SECTOR_SIZE, std::ios::beg);
++		if (m_sd_image.good())
++		{
++			m_sd_image.write(reinterpret_cast<char const *>(m_sd_write_buffer), std::size(m_sd_write_buffer));
++			m_sd_image.flush();
++			if (m_sd_image.bad())
++				m_sd_image.clear();
++		}
++	}
++
++	queue_sd_response(SD_DATA_ACCEPTED);
++	queue_sd_response(0xff);
++}
++
++void xtmax_device::handle_sd_command()
++{
++	uint8_t const command = m_sd_cmd[0] & 0x3f;
++	uint32_t const argument =
++		(uint32_t(m_sd_cmd[1]) << 24) |
++		(uint32_t(m_sd_cmd[2]) << 16) |
++		(uint32_t(m_sd_cmd[3]) << 8) |
++		uint32_t(m_sd_cmd[4]);
++
++	if (!image_ready())
++		return;
++
++	switch (command)
++	{
++	case 0:
++		m_sd_initialized = false;
++		m_sd_app_cmd = false;
++		queue_sd_response(SD_R1_IDLE);
++		break;
++
++	case 1:
++		m_sd_initialized = true;
++		m_sd_app_cmd = false;
++		queue_sd_response(SD_R1_READY);
++		break;
++
++	case 8:
++		queue_sd_response(m_sd_initialized ? SD_R1_READY : SD_R1_IDLE);
++		queue_sd_response(0x00);
++		queue_sd_response(0x00);
++		queue_sd_response(0x01);
++		queue_sd_response(0xaa);
++		break;
++
++	case 16:
++		queue_sd_response(SD_R1_READY);
++		break;
++
++	case 17:
++		if (!m_sd_initialized)
++		{
++			queue_sd_response(SD_R1_IDLE);
++			break;
++		}
++		queue_sd_response(SD_R1_READY);
++		queue_sd_sector(argument);
++		break;
++
++	case 24:
++		if (!m_sd_initialized)
++		{
++			queue_sd_response(SD_R1_IDLE);
++			break;
++		}
++		m_sd_pending_lba = argument;
++		m_sd_expect_write_token = true;
++		m_sd_write_pos = 0;
++		queue_sd_response(SD_R1_READY);
++		break;
++
++	case 55:
++		m_sd_app_cmd = true;
++		queue_sd_response(m_sd_initialized ? SD_R1_READY : SD_R1_IDLE);
++		break;
++
++	case 58:
++		queue_sd_response(m_sd_initialized ? SD_R1_READY : SD_R1_IDLE);
++		queue_sd_response(0x40);
++		queue_sd_response(0x00);
++		queue_sd_response(0x00);
++		queue_sd_response(0x00);
++		break;
++
++	case 41:
++		if (!m_sd_app_cmd)
++		{
++			queue_sd_response(SD_R1_ILLEGAL);
++			break;
++		}
++		m_sd_initialized = true;
++		m_sd_app_cmd = false;
++		queue_sd_response(SD_R1_READY);
++		break;
++
++	default:
++		m_sd_app_cmd = false;
++		queue_sd_response(SD_R1_ILLEGAL);
++		break;
++	}
++}
++
++uint8_t xtmax_device::sd_exchange(uint8_t data)
++{
++	if (!m_sd_selected)
++		return 0xff;
++
++	uint8_t incoming = 0xff;
++	if (m_sd_resp_count)
++	{
++		incoming = m_sd_resp[m_sd_resp_head];
++		m_sd_resp_head = (m_sd_resp_head + 1) % std::size(m_sd_resp);
++		--m_sd_resp_count;
++	}
++
++	if (!image_ready())
++		return incoming;
++
++	if (m_sd_expect_write_data)
++	{
++		if (m_sd_write_pos < std::size(m_sd_write_buffer))
++		{
++			m_sd_write_buffer[m_sd_write_pos++] = data;
++			if (m_sd_write_pos == std::size(m_sd_write_buffer))
++			{
++				m_sd_expect_write_data = false;
++				commit_sd_sector(m_sd_pending_lba);
++			}
++		}
++		return incoming;
++	}
++
++	if (m_sd_expect_write_token)
++	{
++		if (data == SD_DATA_TOKEN)
++		{
++			m_sd_expect_write_token = false;
++			m_sd_expect_write_data = true;
++			m_sd_write_pos = 0;
++		}
++		return incoming;
++	}
++
++	if (!m_sd_cmd_pos)
++	{
++		if ((data & 0xc0) == 0x40)
++		{
++			m_sd_cmd[0] = data;
++			m_sd_cmd_pos = 1;
++		}
++		return incoming;
++	}
++
++	m_sd_cmd[m_sd_cmd_pos++] = data;
++	if (m_sd_cmd_pos == std::size(m_sd_cmd))
++	{
++		m_sd_cmd_pos = 0;
++		handle_sd_command();
++	}
++
++	return incoming;
 +}
 +
 +uint8_t xtmax_device::mman_r(offs_t offset)
@@ -129,14 +409,22 @@ index 0000000..65188f0
 +	m_mman[offset & 0x0f] = data;
 +}
 +
++uint8_t xtmax_device::sd_window_r(offs_t offset)
++{
++	return sd_exchange(0xff);
++}
++
++void xtmax_device::sd_window_w(offs_t offset, uint8_t data)
++{
++	sd_exchange(data);
++}
++
 +uint8_t xtmax_device::sd_r(offs_t offset)
 +{
 +	switch (offset & 0x07)
 +	{
 +	case 0x00:
-+		// No SD backend yet. Return the idle bus level and let the ROM take its
-+		// timeout/failure path deterministically.
-+		return 0xff;
++		return sd_exchange(0xff);
 +
 +	case 0x01:
 +		return m_sd_config;
@@ -160,11 +448,20 @@ index 0000000..65188f0
 +	switch (offset & 0x07)
 +	{
 +	case 0x00:
-+		m_sd_last_write = data;
++		sd_exchange(data);
 +		break;
 +
 +	case 0x01:
-+		m_sd_cs = data;
++		m_sd_cs = data & 0x01;
++		if (m_sd_cs)
++		{
++			m_sd_selected = false;
++			reset_sd_transaction();
++		}
++		else
++		{
++			m_sd_selected = true;
++		}
 +		break;
 +
 +	case 0x02:
@@ -176,18 +473,15 @@ index 0000000..65188f0
 +		break;
 +
 +	case 0x07:
-+		// The Teensy firmware exposes a timeout-complete flag here. Phase 1 has
-+		// no real timing model, so always complete the request immediately.
++		// The Teensy firmware reports whether the requested timeout has elapsed.
++		// This model completes requests immediately and always reports ready.
 +		m_sd_timeout = 0x01;
 +		break;
 +	}
 +}
-diff --git a/src/devices/bus/isa/xtmax.h b/src/devices/bus/isa/xtmax.h
-new file mode 100644
-index 0000000..f63f9de
---- /dev/null
+--- a/src/devices/bus/isa/xtmax.h
 +++ b/src/devices/bus/isa/xtmax.h
-@@ -0,0 +1,36 @@
+@@ -0,0 +1,62 @@
 +// license:BSD-3-Clause
 +// copyright-holders:OpenAI
 +#ifndef MAME_BUS_ISA_XTMAX_H
@@ -197,6 +491,8 @@ index 0000000..f63f9de
 +
 +#include "isa.h"
 +
++#include <fstream>
++
 +class xtmax_device : public device_t, public device_isa8_card_interface
 +{
 +public:
@@ -204,6 +500,8 @@ index 0000000..f63f9de
 +
 +	uint8_t mman_r(offs_t offset);
 +	void mman_w(offs_t offset, uint8_t data);
++	uint8_t sd_window_r(offs_t offset);
++	void sd_window_w(offs_t offset, uint8_t data);
 +	uint8_t sd_r(offs_t offset);
 +	void sd_w(offs_t offset, uint8_t data);
 +
@@ -213,12 +511,34 @@ index 0000000..f63f9de
 +	virtual const tiny_rom_entry *device_rom_region() const override;
 +
 +private:
++	void reopen_sd_image();
++	void reset_sd_transaction();
++	uint8_t sd_exchange(uint8_t data);
++	void queue_sd_response(uint8_t data);
++	void queue_sd_sector(uint32_t lba);
++	void commit_sd_sector(uint32_t lba);
++	void handle_sd_command();
++	bool image_ready() const;
++
 +	uint8_t m_mman[0x10];
 +	uint8_t m_sd_scratch[5];
-+	uint8_t m_sd_last_write;
 +	uint8_t m_sd_config;
 +	uint8_t m_sd_cs;
 +	uint8_t m_sd_timeout;
++	uint8_t m_sd_cmd[6];
++	uint8_t m_sd_resp[1024];
++	uint8_t m_sd_write_buffer[512];
++	uint16_t m_sd_cmd_pos;
++	uint16_t m_sd_resp_head;
++	uint16_t m_sd_resp_count;
++	uint16_t m_sd_write_pos;
++	uint32_t m_sd_pending_lba;
++	bool m_sd_selected;
++	bool m_sd_initialized;
++	bool m_sd_app_cmd;
++	bool m_sd_expect_write_token;
++	bool m_sd_expect_write_data;
++	std::fstream m_sd_image;
 +};
 +
 +DECLARE_DEVICE_TYPE(ISA8_XTMAX, xtmax_device)
