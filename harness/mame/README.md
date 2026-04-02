@@ -128,6 +128,19 @@ That runs:
 - a success case with a generated boot sector that prints `XTMAX TEST BOOT`
 - an invalid-boot-sector case that asserts the CPU halts back inside the XTMax ROM after rejecting the loaded sector
 
+For a Boot ROM INT 13h storage regression, run:
+
+```bash
+./harness/mame/run-xtmax-storage-tests.sh
+```
+
+That uses a generated boot sector that:
+- boots through the XTMax ROM
+- writes sector 2 through the XTMax INT 13h path
+- reads sector 2 back through the same XTMax path
+- compares the buffers in memory
+- prints `XTMAX RW OK` on success
+
 To force the old no-card failure-path test instead:
 
 ```bash
