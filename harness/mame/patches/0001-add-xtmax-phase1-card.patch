@@ -29,7 +29,7 @@
  	device.option_add("adlib", ISA8_ADLIB);
 --- a/src/devices/bus/isa/xtmax.cpp
 +++ b/src/devices/bus/isa/xtmax.cpp
-@@ -0,0 +1,449 @@
+@@ -0,0 +1,551 @@
 +// license:BSD-3-Clause
 +// copyright-holders:OpenAI
 +/***************************************************************************
@@ -69,6 +69,7 @@
 +constexpr offs_t XTMAX_MMAN_END = XTMAX_MMAN_BASE + 0x0f;
 +constexpr offs_t XTMAX_SD_BASE = 0x280;
 +constexpr offs_t XTMAX_SD_END = XTMAX_SD_BASE + 0x07;
++constexpr uint32_t XTMAX_PSRAM_SIZE = 16 * 1024 * 1024;
 +
 +constexpr uint32_t SD_SECTOR_SIZE = 512;
 +constexpr uint8_t SD_R1_IDLE = 0x01;
@@ -76,6 +77,8 @@
 +constexpr uint8_t SD_R1_ILLEGAL = 0x04;
 +constexpr uint8_t SD_DATA_TOKEN = 0xfe;
 +constexpr uint8_t SD_DATA_ACCEPTED = 0x05;
++constexpr uint16_t XTMAX_SEGMENT_MIN = 0xA000;
++constexpr uint16_t XTMAX_SEGMENT_MAX = 0xF000;
 +
 +} // anonymous namespace
 +
@@ -107,6 +110,10 @@
 +	, m_sd_app_cmd(false)
 +	, m_sd_expect_write_token(false)
 +	, m_sd_expect_write_data(false)
++	, m_ems_window_installed(false)
++	, m_ems_window_base(0)
++	, m_ems_window_end(0)
++	, m_psram(XTMAX_PSRAM_SIZE, 0x00)
 +{
 +}
 +
@@ -149,14 +156,19 @@
 +	m_sd_initialized = false;
 +	m_sd_app_cmd = false;
 +	m_sd_pending_lba = 0;
++	m_ems_window_installed = false;
++	m_ems_window_base = 0;
++	m_ems_window_end = 0;
 +
 +	reset_sd_transaction();
 +	reopen_sd_image();
++	std::fill(m_psram.begin(), m_psram.end(), 0x00);
 +
 +	m_isa->install_rom(this, XTMAX_ROM_BASE, XTMAX_ROM_END, "bootrom");
 +	m_isa->install_memory(XTMAX_SD_WINDOW_BASE, XTMAX_SD_WINDOW_END, read8sm_delegate(*this, FUNC(xtmax_device::sd_window_r)), write8sm_delegate(*this, FUNC(xtmax_device::sd_window_w)));
 +	m_isa->install_device(XTMAX_MMAN_BASE, XTMAX_MMAN_END, read8sm_delegate(*this, FUNC(xtmax_device::mman_r)), write8sm_delegate(*this, FUNC(xtmax_device::mman_w)));
 +	m_isa->install_device(XTMAX_SD_BASE, XTMAX_SD_END, read8sm_delegate(*this, FUNC(xtmax_device::sd_r)), write8sm_delegate(*this, FUNC(xtmax_device::sd_w)));
++	update_mman_mapping();
 +}
 +
 +bool xtmax_device::image_ready() const
@@ -407,6 +419,32 @@
 +void xtmax_device::mman_w(offs_t offset, uint8_t data)
 +{
 +	m_mman[offset & 0x0f] = data;
++	switch (offset & 0x0f)
++	{
++	case 0x0a:
++	case 0x0b:
++	case 0x0c:
++		update_mman_mapping();
++		break;
++	}
++}
++
++uint8_t xtmax_device::ems_r(offs_t offset)
++{
++	uint32_t psram_address = 0;
++	if (!resolve_ems_address(m_ems_window_base + offset, psram_address))
++		return 0xff;
++
++	return m_psram[psram_address];
++}
++
++void xtmax_device::ems_w(offs_t offset, uint8_t data)
++{
++	uint32_t psram_address = 0;
++	if (!resolve_ems_address(m_ems_window_base + offset, psram_address))
++		return;
++
++	m_psram[psram_address] = data;
 +}
 +
 +uint8_t xtmax_device::sd_window_r(offs_t offset)
@@ -479,9 +517,73 @@
 +		break;
 +	}
 +}
++
++void xtmax_device::update_mman_mapping()
++{
++	if (m_ems_window_installed)
++	{
++		m_isa->unmap_readwrite(m_ems_window_base, m_ems_window_end);
++		m_ems_window_installed = false;
++	}
++
++	uint16_t const ems_base_segment = uint16_t(m_mman[0x0a]) | (uint16_t(m_mman[0x0b]) << 8);
++	uint8_t const ems_size = m_mman[0x0c];
++
++	if (!ems_size)
++		return;
++
++	if (ems_base_segment < XTMAX_SEGMENT_MIN)
++		return;
++
++	if (ems_base_segment + (uint16_t(ems_size) << 10) > XTMAX_SEGMENT_MAX)
++		return;
++
++	m_ems_window_base = offs_t(ems_base_segment) << 4;
++	m_ems_window_end = m_ems_window_base + (offs_t(ems_size) << 14) - 1;
++	m_isa->install_memory(m_ems_window_base, m_ems_window_end, read8sm_delegate(*this, FUNC(xtmax_device::ems_r)), write8sm_delegate(*this, FUNC(xtmax_device::ems_w)));
++	m_ems_window_installed = true;
++}
++
++bool xtmax_device::resolve_ems_address(offs_t isa_address, uint32_t &psram_address) const
++{
++	uint16_t const ems_base_segment = uint16_t(m_mman[0x0a]) | (uint16_t(m_mman[0x0b]) << 8);
++	uint32_t const frame_base = uint32_t(ems_base_segment) << 4;
++	uint32_t const page_base = isa_address & 0xfc000;
++	unsigned frame_index = 0;
++
++	if (page_base < frame_base)
++		return false;
++
++	switch (page_base - frame_base)
++	{
++	case 0x0000:
++		frame_index = 0;
++		break;
++	case 0x4000:
++		frame_index = 1;
++		break;
++	case 0x8000:
++		frame_index = 2;
++		break;
++	case 0xc000:
++		frame_index = 3;
++		break;
++	default:
++		return false;
++	}
++
++	uint16_t const frame_pointer =
++		uint16_t(m_mman[frame_index * 2]) |
++		(uint16_t(m_mman[(frame_index * 2) + 1]) << 8);
++	if (frame_pointer == 0xffff)
++		return false;
++
++	psram_address = (uint32_t(frame_pointer) << 14) | (uint32_t(isa_address) & 0x03fff);
++	return psram_address < m_psram.size();
++}
 --- a/src/devices/bus/isa/xtmax.h
 +++ b/src/devices/bus/isa/xtmax.h
-@@ -0,0 +1,62 @@
+@@ -0,0 +1,71 @@
 +// license:BSD-3-Clause
 +// copyright-holders:OpenAI
 +#ifndef MAME_BUS_ISA_XTMAX_H
@@ -492,6 +594,7 @@
 +#include "isa.h"
 +
 +#include <fstream>
++#include <vector>
 +
 +class xtmax_device : public device_t, public device_isa8_card_interface
 +{
@@ -500,6 +603,8 @@
 +
 +	uint8_t mman_r(offs_t offset);
 +	void mman_w(offs_t offset, uint8_t data);
++	uint8_t ems_r(offs_t offset);
++	void ems_w(offs_t offset, uint8_t data);
 +	uint8_t sd_window_r(offs_t offset);
 +	void sd_window_w(offs_t offset, uint8_t data);
 +	uint8_t sd_r(offs_t offset);
@@ -519,6 +624,8 @@
 +	void commit_sd_sector(uint32_t lba);
 +	void handle_sd_command();
 +	bool image_ready() const;
++	void update_mman_mapping();
++	bool resolve_ems_address(offs_t isa_address, uint32_t &psram_address) const;
 +
 +	uint8_t m_mman[0x10];
 +	uint8_t m_sd_scratch[5];
@@ -538,7 +645,11 @@
 +	bool m_sd_app_cmd;
 +	bool m_sd_expect_write_token;
 +	bool m_sd_expect_write_data;
++	bool m_ems_window_installed;
++	offs_t m_ems_window_base;
++	offs_t m_ems_window_end;
 +	std::fstream m_sd_image;
++	std::vector<uint8_t> m_psram;
 +};
 +
 +DECLARE_DEVICE_TYPE(ISA8_XTMAX, xtmax_device)

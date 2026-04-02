@@ -92,6 +92,13 @@ build_xtmax_rw_boot_image() {
     "$1"
 }
 
+build_xtmax_ems_boot_image() {
+  build_xtmax_boot_image_from_asm \
+    "${XTMAX_HARNESS_ROOT}/boot/xtmax_ems_boot.asm" \
+    "${XTMAX_MAME_ARTIFACTS_DIR}/xtmax-ems-boot.bin" \
+    "$1"
+}
+
 stage_xtmax_device_bootrom() {
   local bootrom_src="${XTMAX_REPO_ROOT}/firmware/teensy/bootrom.bin"
   local bootrom_dir="${XTMAX_MAME_ROMS_DIR}/xtmax"

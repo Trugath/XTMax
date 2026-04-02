@@ -141,6 +141,21 @@ That uses a generated boot sector that:
 - compares the buffers in memory
 - prints `XTMAX RW OK` on success
 
+For an EMS page-frame regression, run:
+
+```bash
+./harness/mame/run-xtmax-ems-tests.sh
+```
+
+That uses a generated boot sector that:
+- boots through the XTMax ROM
+- programs the MMAN EMS registers at `0x260-0x26F`
+- maps a 64 KB EMS frame at `0xE0000`
+- writes distinct bytes through two 16 KB windows
+- remaps the EMS frame pointers
+- verifies the remapped windows expose the expected PSRAM-backed data
+- prints `XTMAX EMS OK` on success
+
 To force the old no-card failure-path test instead:
 
 ```bash
