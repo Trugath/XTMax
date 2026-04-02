@@ -83,37 +83,48 @@ stage_known_rom_aliases() {
   fi
 }
 
-ensure_mame_dirs() {
+ensure_mame_dirs_for() {
+  local base_dir="$1"
   mkdir -p \
-    "${XTMAX_MAME_ARTIFACTS_DIR}" \
+    "${base_dir}" \
     "${XTMAX_MAME_ROMS_DIR}" \
-    "${XTMAX_MAME_ARTIFACTS_DIR}/cfg" \
-    "${XTMAX_MAME_ARTIFACTS_DIR}/nvram" \
-    "${XTMAX_MAME_ARTIFACTS_DIR}/input" \
-    "${XTMAX_MAME_ARTIFACTS_DIR}/state" \
-    "${XTMAX_MAME_ARTIFACTS_DIR}/snap"
+    "${base_dir}/cfg" \
+    "${base_dir}/nvram" \
+    "${base_dir}/input" \
+    "${base_dir}/state" \
+    "${base_dir}/snap"
+}
+
+ensure_mame_dirs() {
+  ensure_mame_dirs_for "${XTMAX_MAME_ARTIFACTS_DIR}"
 }
 
 escape_sed_path() {
   printf '%s' "$1" | sed 's/[|&]/\\&/g'
 }
 
-render_mame_config() {
-  ensure_mame_dirs
+render_mame_config_to() {
+  local base_dir="$1"
+  local config_file="${base_dir}/mame.ini"
+  ensure_mame_dirs_for "${base_dir}"
   stage_known_rom_aliases
   local rompath
   rompath="$(combined_rompath)"
 
   sed \
-    -e "s|@HOMEPATH@|$(escape_sed_path "${XTMAX_MAME_ARTIFACTS_DIR}")|g" \
+    -e "s|@HOMEPATH@|$(escape_sed_path "${base_dir}")|g" \
     -e "s|@ROMPATH@|$(escape_sed_path "${rompath}")|g" \
-    -e "s|@CFGDIR@|$(escape_sed_path "${XTMAX_MAME_ARTIFACTS_DIR}/cfg")|g" \
-    -e "s|@NVRAMDIR@|$(escape_sed_path "${XTMAX_MAME_ARTIFACTS_DIR}/nvram")|g" \
-    -e "s|@INPUTDIR@|$(escape_sed_path "${XTMAX_MAME_ARTIFACTS_DIR}/input")|g" \
-    -e "s|@STATEDIR@|$(escape_sed_path "${XTMAX_MAME_ARTIFACTS_DIR}/state")|g" \
-    -e "s|@SNAPDIR@|$(escape_sed_path "${XTMAX_MAME_ARTIFACTS_DIR}/snap")|g" \
-    -e "s|@DIFFDIR@|$(escape_sed_path "${XTMAX_MAME_ARTIFACTS_DIR}/diff")|g" \
-    "${XTMAX_MAME_CONFIG_TEMPLATE}" > "${XTMAX_MAME_CONFIG_FILE}"
+    -e "s|@CFGDIR@|$(escape_sed_path "${base_dir}/cfg")|g" \
+    -e "s|@NVRAMDIR@|$(escape_sed_path "${base_dir}/nvram")|g" \
+    -e "s|@INPUTDIR@|$(escape_sed_path "${base_dir}/input")|g" \
+    -e "s|@STATEDIR@|$(escape_sed_path "${base_dir}/state")|g" \
+    -e "s|@SNAPDIR@|$(escape_sed_path "${base_dir}/snap")|g" \
+    -e "s|@DIFFDIR@|$(escape_sed_path "${base_dir}/diff")|g" \
+    "${XTMAX_MAME_CONFIG_TEMPLATE}" > "${config_file}"
+}
+
+render_mame_config() {
+  render_mame_config_to "${XTMAX_MAME_ARTIFACTS_DIR}"
 }
 
 find_mame_bin() {

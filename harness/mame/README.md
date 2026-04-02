@@ -12,6 +12,7 @@ What this harness can validate with stock MAME:
 - that a known PC/XT machine boots with the selected ROM set
 - that the XTMax floppy image mounts cleanly
 - that a user-supplied DOS boot floppy can boot and run commands against the XTMax disk
+- that the DOS-side smoke flow visibly reaches the XTMax floppy listing in text mode
 
 What it does not validate yet:
 - Teensy firmware timing
@@ -55,6 +56,12 @@ The harness will append that path to MAME's `rompath` rather than copying anythi
 
 This uses `images/xtmax360.img` by default.
 
+Override the machine or BIOS if needed:
+
+```bash
+MAME_MACHINE=ibm5160 MAME_BIOS=rev2 ./harness/mame/run-smoke.sh
+```
+
 Before launching, you can check the expected ROM filenames:
 
 ```bash
@@ -73,6 +80,29 @@ Defaults:
 - machine: `ibm5155`
 - XTMax floppy: `images/xtmax360.img`
 - DOS command stream: `B:` then `DIR`
+- default assertions: `B>`, `XTSD.SYS`, `XTEMM.EXE`, `XTUMBS.SYS`
+
+The `ibm5155` target currently appears to stall in stock MAME after `640 KB OK` even with no floppy present. For a working DOS-side integration path, use the XT motherboard with the matching 11/08/82 BIOS:
+
+```bash
+MAME_MACHINE=ibm5160 MAME_BIOS=rev2 \
+DOS_BOOT_FLOPPY=/path/to/dos-boot.img \
+./harness/mame/run-driver-tests.sh
+```
+
+In that configuration the harness uses a prompt-gated Lua flow:
+- starts a clean MAME session by default
+- waits until `A:\>` is visible
+- posts `B:` and `DIR` through MAME's natural keyboard manager
+- asserts that the XTMax disk listing appears on screen
+
+If you need the older direct autoboot-command flow, force it explicitly:
+
+```bash
+XTMAX_MAME_DRIVER_FLOW=autoboot \
+DOS_BOOT_FLOPPY=/path/to/dos-boot.img \
+./harness/mame/run-driver-tests.sh
+```
 
 Override the auto-typed command stream if needed:
 
@@ -83,6 +113,24 @@ DOS_BOOT_FLOPPY=/path/to/dos-boot.img \
 ```
 
 For deeper DOS-driver coverage, prepare a boot floppy with the desired `CONFIG.SYS` / `AUTOEXEC.BAT` content and point `DOS_BOOT_FLOPPY` at it.
+
+The DOS harness now uses a Lua script to read text-mode video memory and assert that the expected XTMax disk listing appears on screen. Override the expected text if needed:
+
+```bash
+XTMAX_MAME_EXPECT_TEXT='B>|README.TXT' \
+DOS_BOOT_FLOPPY=/path/to/dos-boot.img \
+./harness/mame/run-driver-tests.sh
+```
+
+For prompt-gated Lua posting, override the prompt text or posted command sequence like this:
+
+```bash
+MAME_MACHINE=ibm5160 MAME_BIOS=rev2 \
+XTMAX_MAME_POST_WHEN_TEXT='A:\\>' \
+XTMAX_MAME_POST_CODED='B:\\rDIR\\rTYPE README.TXT\\r' \
+DOS_BOOT_FLOPPY=/path/to/dos-boot.img \
+./harness/mame/run-driver-tests.sh
+```
 
 ## ROM Notes
 
@@ -95,6 +143,8 @@ For deeper DOS-driver coverage, prepare a boot floppy with the desired `CONFIG.S
 - `bootstrap.sh`: install or detect MAME, then create local MAME config/state directories
 - `run-smoke.sh`: launch a stock-MAME smoke test with the XTMax floppy image
 - `run-driver-tests.sh`: same flow, but expects a DOS boot floppy and types commands after boot
+- `lua/assert_textmode_dir.lua`: DOS text-mode assertion script used by `run-driver-tests.sh`
+- `lua/post_and_assert.lua`: prompt-gated DOS driver-test script for the working `ibm5160`/`rev2` path
 - `verify-roms.sh`: check for the exact ROM filenames the stock machine target expects
 - `config/mame.ini.template`: repo-local MAME config template
 - `roms/`: repo-local ROM files
@@ -105,3 +155,4 @@ For deeper DOS-driver coverage, prepare a boot floppy with the desired `CONFIG.S
 - The bootstrap prefers a system package manager (`apt`, `dnf`, `pacman`, or `brew`).
 - If MAME is already installed, export `MAME_BIN` to override discovery.
 - This harness intentionally does not download PC BIOS ROM sets or DOS images.
+- `run-driver-tests.sh` now defaults to a clean temporary MAME session so stale cfg/nvram state does not pollute DOS automation.
