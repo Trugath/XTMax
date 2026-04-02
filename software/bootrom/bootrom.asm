@@ -33,6 +33,9 @@ cpu 8086    ; ensure we remain compatible with 8086
 ;
 %define USE_BOOTSTRAP
 %define SD_FLAG_BLOCK_ADDRESSING 0x01
+%define BOOT_SELECTION_DEFAULT 0
+%define BOOT_SELECTION_FLOPPY  1
+%define BOOT_SELECTION_SD      2
 
 ;
 ; Whether we are going to rename the BIOS's 1st disk to be the second disk.
@@ -905,6 +908,11 @@ succeeded:
 ; Attempt to boot from floppy (single try for expediency).
 ;
 int19h_entry:
+.service_menu:
+    call maybe_show_boot_menu
+    cmp al, BOOT_SELECTION_SD
+    je int18h_entry.boot_sd
+.boot_floppy:
     xor dx, dx              ; 1st floppy drive
     call read_sector
 .test_signature:            ; taken from IBM BIOS for XT 286
@@ -925,6 +933,10 @@ int19h_entry:
 ; Attempt to boot from SD Card.
 ;
 int18h_entry:
+    call maybe_show_boot_menu
+    cmp al, BOOT_SELECTION_FLOPPY
+    je int19h_entry.boot_floppy
+.boot_sd:
     mov bp, sp
     mov ax, ss:[bp+2]
     test ax, ax             ; caller is boot sector, must be no active partition
@@ -961,6 +973,82 @@ read_sector:
     mov cx, 1               ; sector 1
     mov bx, 0x7c00
     int 0x13
+    ret
+
+maybe_show_boot_menu:
+    cmp byte [boot_menu_seen], 0
+    jne .skip
+    inc byte [boot_menu_seen]
+    mov ax, menu_hint_msg
+    call print_string
+    call poll_menu_hotkey
+    and al, 0xdf
+    cmp al, 'X'
+    jne .skip
+.show_menu:
+    mov ax, menu_msg
+    call print_string
+.wait_key:
+    xor ah, ah
+    int 0x16
+    and al, 0xdf
+    cmp al, 'F'
+    je .boot_floppy
+    cmp al, 'S'
+    je .boot_sd
+    cmp al, 'D'
+    je .diag
+    cmp al, 'C'
+    je .skip
+    jmp .wait_key
+.diag:
+    mov dx, 0x80
+    call read_sector
+    jc .diag_fail
+    cmp word [0x7c00+510], 0xaa55
+    jne .diag_fail
+    mov ax, diag_ok_msg
+    call print_string
+    jmp .show_menu
+.diag_fail:
+    mov ax, diag_fail_msg
+    call print_string
+    jmp .show_menu
+.boot_floppy:
+    mov al, BOOT_SELECTION_FLOPPY
+    ret
+.boot_sd:
+    mov al, BOOT_SELECTION_SD
+    ret
+.skip:
+    xor al, al
+    ret
+
+poll_menu_hotkey:
+    push ds
+    push bx
+    push cx
+    mov bx, 0x40
+    mov ds, bx
+    mov bx, [0x6c]
+    mov cx, 18              ; about 1 second
+.loop:
+    mov ah, 0x01
+    int 0x16
+    jnz .key_ready
+    mov ax, [0x6c]
+    sub ax, bx
+    cmp ax, cx
+    jb .loop
+    xor ax, ax
+    jmp .done
+.key_ready:
+    xor ah, ah
+    int 0x16
+.done:
+    pop cx
+    pop bx
+    pop ds
     ret
 %endif
 
@@ -1448,11 +1536,16 @@ debug_handler:
 
 welcome_msg     db 'BootROM for XTMax v1.0', 0xD, 0xA
                 db 0
+boot_menu_seen  db 0
 sd_flags        db 0
 sd_response_buffer db 0, 0, 0, 0
 init_ok_msg     db 'SD Card initialized successfully', 0xD, 0xA, 0
 init_error_msg  db 'SD Card failed to initialize', 0xD, 0xA, 0
 %ifdef USE_BOOTSTRAP
+menu_hint_msg   db 'X?', 0xD, 0xA, 0
+menu_msg        db 'F/S/D/C', 0xD, 0xA, 0
+diag_ok_msg     db 'OK', 0xD, 0xA, 0
+diag_fail_msg   db 'FAIL', 0xD, 0xA, 0
 no_boot_msg     db 'No bootable media found', 0xD, 0xA, 0
 no_part_msg     db 'No active partition found', 0xD, 0xA, 0
 %endif

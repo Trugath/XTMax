@@ -128,6 +128,14 @@ That runs:
 - a success case with a generated boot sector that prints `XTMAX TEST BOOT`
 - an invalid-boot-sector case that asserts the CPU halts back inside the XTMax ROM after rejecting the loaded sector
 
+For a ROM service-menu regression, run:
+
+```bash
+./harness/mame/run-xtmax-menu-tests.sh
+```
+
+That opens the runtime menu (`X`) and exercises the diagnostic path (`D`), then asserts that the menu and diagnostic result remain visible on screen.
+
 For a Boot ROM INT 13h storage regression, run:
 
 ```bash
@@ -247,6 +255,7 @@ DOS_BOOT_FLOPPY=/path/to/dos-boot.img \
 - `run-driver-tests.sh`: same flow, but expects a DOS boot floppy and types commands after boot
 - `build-mame-xtmax.sh`: fetch, patch, and optionally build a separate `mame0264` tree with the XTMax phase-1 ISA device
 - `run-xtmax-device-tests.sh`: run the patched MAME binary and assert the XTMax Boot ROM path on screen
+- `run-xtmax-menu-tests.sh`: run the patched MAME binary and assert the XTMax ROM service-menu path on screen
 - `lua/assert_textmode_dir.lua`: DOS text-mode assertion script used by `run-driver-tests.sh`
 - `lua/post_and_assert.lua`: prompt-gated DOS driver-test script for the working `ibm5160`/`rev2` path
 - `patches/0001-add-xtmax-phase1-card.patch`: external MAME patch for the XTMax phase-1 device

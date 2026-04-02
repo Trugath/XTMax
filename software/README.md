@@ -12,6 +12,15 @@ The ROM can be relocated by changing the address `BOOTROM_ADDR` in the [`bootrom
 re-deploying the Teensy sketch. The address **must** be a multiple of 2048 bytes (2KB) and must be within the range
 0xC8000-DF800 (this is the range that the BIOS searches).
 
+### Boot-time ROM services
+
+During the bootstrap path, the option ROM exposes a tiny one-boot services menu. When `X?` appears, press `X` to open it:
+
+- `F`: force floppy boot for this boot attempt
+- `S`: force SD boot for this boot attempt
+- `D`: run a quick SD boot-sector diagnostic
+- `C`: continue with the default boot path
+
 ### Preparing an SD Card for use with MS-DOS
 
 The preferred method for preparing an SD Card for use is to use the machine with the XTMax. From an MS-DOS prompt, begin

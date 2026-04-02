@@ -66,6 +66,20 @@ class SDCardStackTests(unittest.TestCase):
         self.assertIn("mov cx, [0x4e]", utils_text)
         self.assertIn("mov [bx+0x50], dx", utils_text)
 
+    def test_bootrom_has_runtime_service_menu(self) -> None:
+        text = BOOTROM.read_text()
+        for needle in (
+            "maybe_show_boot_menu:",
+            "poll_menu_hotkey:",
+            "menu_hint_msg",
+            "menu_msg",
+            "diag_ok_msg",
+            "diag_fail_msg",
+            "BOOT_SELECTION_FLOPPY",
+            "BOOT_SELECTION_SD",
+        ):
+            self.assertIn(needle, text)
+
 
 if __name__ == "__main__":
     unittest.main()
