@@ -8,6 +8,7 @@ readonly XTMAX_MAME_CONFIG_TEMPLATE="${XTMAX_HARNESS_ROOT}/config/mame.ini.templ
 readonly XTMAX_MAME_CONFIG_FILE="${XTMAX_MAME_ARTIFACTS_DIR}/mame.ini"
 readonly XTMAX_MAME_REPO_ROMS_DIR="${XTMAX_HARNESS_ROOT}/roms"
 readonly XTMAX_MAME_ROMS_DIR="${XTMAX_MAME_ARTIFACTS_DIR}/roms"
+readonly XTMAX_MAME_PATCHES_DIR="${XTMAX_HARNESS_ROOT}/patches"
 
 default_extra_rompath() {
   local parent_dir="${XTMAX_REPO_ROOT}/.."
@@ -33,6 +34,34 @@ combined_rompath() {
   fi
 
   printf '%s\n' "${rompath}"
+}
+
+xtmax_mame_upstream_tag() {
+  printf '%s\n' "${XTMAX_MAME_UPSTREAM_TAG:-mame0264}"
+}
+
+xtmax_mame_source_dir() {
+  local tag
+  tag="$(xtmax_mame_upstream_tag)"
+  printf '%s\n' "${XTMAX_MAME_ARTIFACTS_DIR}/mame-src-${tag}"
+}
+
+xtmax_mame_patched_bin() {
+  printf '%s\n' "${XTMAX_MAME_PATCHED_BIN:-$(xtmax_mame_source_dir)/mame}"
+}
+
+stage_xtmax_device_bootrom() {
+  local bootrom_src="${XTMAX_REPO_ROOT}/firmware/teensy/bootrom.bin"
+  local bootrom_dir="${XTMAX_MAME_ROMS_DIR}/xtmax"
+  local bootrom_dst="${bootrom_dir}/xtmax_bootrom.bin"
+
+  if [[ ! -f "${bootrom_src}" ]]; then
+    echo "XTMax Boot ROM image not found: ${bootrom_src}" >&2
+    return 1
+  fi
+
+  mkdir -p "${bootrom_dir}"
+  ln -sfn "${bootrom_src}" "${bootrom_dst}"
 }
 
 stage_known_rom_aliases() {

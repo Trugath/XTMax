@@ -1,0 +1,226 @@
+diff --git a/scripts/src/bus.lua b/scripts/src/bus.lua
+index 2a1d953..e7cf766 100644
+--- a/scripts/src/bus.lua
++++ b/scripts/src/bus.lua
+@@ -1849,6 +1849,8 @@ if (BUSES["ISA"]~=null) then
+ 		MAME_DIR .. "src/devices/bus/isa/xsu_cards.cpp",
+ 		MAME_DIR .. "src/devices/bus/isa/xsu_cards.h",
+ 		MAME_DIR .. "src/devices/bus/isa/xtide.cpp",
++		MAME_DIR .. "src/devices/bus/isa/xtmax.cpp",
++		MAME_DIR .. "src/devices/bus/isa/xtmax.h",
+ 		MAME_DIR .. "src/devices/bus/isa/xtide.h",
+ 	}
+ end
+diff --git a/src/devices/bus/isa/isa_cards.cpp b/src/devices/bus/isa/isa_cards.cpp
+index ccf4ccf..239d476 100644
+--- a/src/devices/bus/isa/isa_cards.cpp
++++ b/src/devices/bus/isa/isa_cards.cpp
+@@ -29,6 +29,7 @@
+ #include "wdxt_gen.h"
+ #include "ide.h"
+ #include "xtide.h"
++#include "xtmax.h"
+ #include "side116.h"
+ #include "acb2072.h"
+ #include "aha1542b.h"
+@@ -110,6 +111,7 @@ void pc_isa8_cards(device_slot_interface &device)
+ 	device.option_add("fdcmag", ISA8_FDCMAG);
+ 	device.option_add("wdxt_gen", ISA8_WDXT_GEN);
+ 	device.option_add("xtide", ISA8_XTIDE);
++	device.option_add("xtmax", ISA8_XTMAX);
+ 	device.option_add("side116", ISA8_SIDE116);
+ 	device.option_add("hdc", ISA8_HDC);
+ 	device.option_add("adlib", ISA8_ADLIB);
+diff --git a/src/devices/bus/isa/xtmax.cpp b/src/devices/bus/isa/xtmax.cpp
+new file mode 100644
+index 0000000..65188f0
+--- /dev/null
++++ b/src/devices/bus/isa/xtmax.cpp
+@@ -0,0 +1,145 @@
++// license:BSD-3-Clause
++// copyright-holders:OpenAI
++/***************************************************************************
++
++    XTMax phase-1 model
++
++    This models the XT-visible contract only:
++    - option ROM at 0xCE000
++    - MMAN register block at 0x260-0x26f
++    - SD register block at 0x280-0x287
++
++    Phase 1 intentionally stubs the SD path to a deterministic timeout/fail
++    response so the option ROM path can be exercised without emulating the
++    Teensy firmware, SD SPI signalling, or PSRAM mapping yet.
++
++***************************************************************************/
++
++#include "emu.h"
++#include "xtmax.h"
++
++#include <algorithm>
++
++
++namespace {
++
++constexpr offs_t XTMAX_ROM_BASE = 0xce000;
++constexpr offs_t XTMAX_ROM_END = XTMAX_ROM_BASE + 0x07ff;
++constexpr offs_t XTMAX_MMAN_BASE = 0x260;
++constexpr offs_t XTMAX_MMAN_END = XTMAX_MMAN_BASE + 0x0f;
++constexpr offs_t XTMAX_SD_BASE = 0x280;
++constexpr offs_t XTMAX_SD_END = XTMAX_SD_BASE + 0x07;
++
++} // anonymous namespace
++
++ROM_START( xtmax )
++	ROM_REGION(0x00800, "bootrom", 0)
++	ROM_LOAD("xtmax_bootrom.bin", 0x000000, 0x000800, CRC(77bcb6cc) SHA1(788bbaab2d49c66bbc62061f5192bdf0de42a3c8))
++ROM_END
++
++DEFINE_DEVICE_TYPE(ISA8_XTMAX, xtmax_device, "xtmax", "XTMax phase-1 adapter")
++
++const tiny_rom_entry *xtmax_device::device_rom_region() const
++{
++	return ROM_NAME( xtmax );
++}
++
++xtmax_device::xtmax_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
++	: device_t(mconfig, ISA8_XTMAX, tag, owner, clock)
++	, device_isa8_card_interface(mconfig, *this)
++	, m_sd_last_write(0xff)
++	, m_sd_config(0x00)
++	, m_sd_cs(0x00)
++	, m_sd_timeout(0x01)
++{
++}
++
++void xtmax_device::device_start()
++{
++	set_isa_device();
++
++	save_item(NAME(m_mman));
++	save_item(NAME(m_sd_scratch));
++	save_item(NAME(m_sd_last_write));
++	save_item(NAME(m_sd_config));
++	save_item(NAME(m_sd_cs));
++	save_item(NAME(m_sd_timeout));
++}
++
++void xtmax_device::device_reset()
++{
++	std::fill(std::begin(m_mman), std::end(m_mman), 0xff);
++	std::fill(std::begin(m_sd_scratch), std::end(m_sd_scratch), 0x00);
++	m_sd_last_write = 0xff;
++	m_sd_config = 0x00;
++	m_sd_cs = 0x00;
++	m_sd_timeout = 0x01;
++
++	m_isa->install_rom(this, XTMAX_ROM_BASE, XTMAX_ROM_END, "bootrom");
++	m_isa->install_device(XTMAX_MMAN_BASE, XTMAX_MMAN_END, read8sm_delegate(*this, FUNC(xtmax_device::mman_r)), write8sm_delegate(*this, FUNC(xtmax_device::mman_w)));
++	m_isa->install_device(XTMAX_SD_BASE, XTMAX_SD_END, read8sm_delegate(*this, FUNC(xtmax_device::sd_r)), write8sm_delegate(*this, FUNC(xtmax_device::sd_w)));
++}
++
++uint8_t xtmax_device::mman_r(offs_t offset)
++{
++	return m_mman[offset & 0x0f];
++}
++
++void xtmax_device::mman_w(offs_t offset, uint8_t data)
++{
++	m_mman[offset & 0x0f] = data;
++}
++
++uint8_t xtmax_device::sd_r(offs_t offset)
++{
++	switch (offset & 0x07)
++	{
++	case 0x00:
++		// No SD backend yet. Return the idle bus level and let the ROM take its
++		// timeout/failure path deterministically.
++		return 0xff;
++
++	case 0x01:
++		return m_sd_config;
++
++	case 0x02:
++	case 0x03:
++	case 0x04:
++	case 0x05:
++	case 0x06:
++		return m_sd_scratch[(offset & 0x07) - 0x02];
++
++	case 0x07:
++		return m_sd_timeout;
++	}
++
++	return 0xff;
++}
++
++void xtmax_device::sd_w(offs_t offset, uint8_t data)
++{
++	switch (offset & 0x07)
++	{
++	case 0x00:
++		m_sd_last_write = data;
++		break;
++
++	case 0x01:
++		m_sd_cs = data;
++		break;
++
++	case 0x02:
++	case 0x03:
++	case 0x04:
++	case 0x05:
++	case 0x06:
++		m_sd_scratch[(offset & 0x07) - 0x02] = data;
++		break;
++
++	case 0x07:
++		// The Teensy firmware exposes a timeout-complete flag here. Phase 1 has
++		// no real timing model, so always complete the request immediately.
++		m_sd_timeout = 0x01;
++		break;
++	}
++}
+diff --git a/src/devices/bus/isa/xtmax.h b/src/devices/bus/isa/xtmax.h
+new file mode 100644
+index 0000000..f63f9de
+--- /dev/null
++++ b/src/devices/bus/isa/xtmax.h
+@@ -0,0 +1,36 @@
++// license:BSD-3-Clause
++// copyright-holders:OpenAI
++#ifndef MAME_BUS_ISA_XTMAX_H
++#define MAME_BUS_ISA_XTMAX_H
++
++#pragma once
++
++#include "isa.h"
++
++class xtmax_device : public device_t, public device_isa8_card_interface
++{
++public:
++	xtmax_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
++
++	uint8_t mman_r(offs_t offset);
++	void mman_w(offs_t offset, uint8_t data);
++	uint8_t sd_r(offs_t offset);
++	void sd_w(offs_t offset, uint8_t data);
++
++protected:
++	virtual void device_start() override;
++	virtual void device_reset() override;
++	virtual const tiny_rom_entry *device_rom_region() const override;
++
++private:
++	uint8_t m_mman[0x10];
++	uint8_t m_sd_scratch[5];
++	uint8_t m_sd_last_write;
++	uint8_t m_sd_config;
++	uint8_t m_sd_cs;
++	uint8_t m_sd_timeout;
++};
++
++DECLARE_DEVICE_TYPE(ISA8_XTMAX, xtmax_device)
++
++#endif // MAME_BUS_ISA_XTMAX_H

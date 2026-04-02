@@ -16,7 +16,7 @@ What this harness can validate with stock MAME:
 
 What it does not validate yet:
 - Teensy firmware timing
-- XTMax MMIO or option ROM behavior
+- full XTMax MMIO or option ROM behavior through a device model
 - EMS/UMB mapping through a custom XTMax ISA device
 
 ## Quick Start
@@ -67,6 +67,50 @@ Before launching, you can check the expected ROM filenames:
 ```bash
 ./harness/mame/verify-roms.sh
 ```
+
+## XTMax Device Model
+
+There is now an opt-in external patchset for a first XTMax ISA device model.
+
+Phase 1 is intentionally narrow:
+- maps the XTMax option ROM at `0xCE000`
+- exposes the XTMax MMAN ports at `0x260-0x26F`
+- exposes the XTMax SD ports at `0x280-0x287`
+- stubs the SD path to a deterministic timeout so the Boot ROM can execute and reach its failure path
+
+What phase 1 does not emulate yet:
+- real SD card command/data behavior
+- PSRAM backing
+- EMS/UMB memory windows
+- the Teensy firmware itself
+
+Fetch and patch a separate `mame0264` source tree like this:
+
+```bash
+./harness/mame/build-mame-xtmax.sh --skip-build
+```
+
+Then build it:
+
+```bash
+./harness/mame/build-mame-xtmax.sh
+```
+
+The patched tree lives under `harness/mame/artifacts/` and is ignored by git.
+
+Once built, run the XTMax device assertion flow:
+
+```bash
+./harness/mame/run-xtmax-device-tests.sh
+```
+
+By default that uses:
+- machine: `ibm5160`
+- BIOS: `rev2`
+- slot: `isa5`
+- expected text: `BootROM for XTMax v1.0` and `SD Card failed to initialize`
+
+This keeps the custom MAME work completely outside the main repo history while still letting the repo carry the patchset and automation.
 
 ## DOS Session Automation
 
@@ -143,8 +187,11 @@ DOS_BOOT_FLOPPY=/path/to/dos-boot.img \
 - `bootstrap.sh`: install or detect MAME, then create local MAME config/state directories
 - `run-smoke.sh`: launch a stock-MAME smoke test with the XTMax floppy image
 - `run-driver-tests.sh`: same flow, but expects a DOS boot floppy and types commands after boot
+- `build-mame-xtmax.sh`: fetch, patch, and optionally build a separate `mame0264` tree with the XTMax phase-1 ISA device
+- `run-xtmax-device-tests.sh`: run the patched MAME binary and assert the XTMax Boot ROM path on screen
 - `lua/assert_textmode_dir.lua`: DOS text-mode assertion script used by `run-driver-tests.sh`
 - `lua/post_and_assert.lua`: prompt-gated DOS driver-test script for the working `ibm5160`/`rev2` path
+- `patches/0001-add-xtmax-phase1-card.patch`: external MAME patch for the XTMax phase-1 device
 - `verify-roms.sh`: check for the exact ROM filenames the stock machine target expects
 - `config/mame.ini.template`: repo-local MAME config template
 - `roms/`: repo-local ROM files
