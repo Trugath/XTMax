@@ -10,8 +10,9 @@ cpu 8086    ; ensure we remain compatible with 8086
 ;%define DEBUG
 ;%define DEBUG_IO
 ;%define EXTRA_DEBUG
-; Enable for systems where ROM INT 10h teletype output blanks the display (eg IBM 5155).
-%define QUIET_VIDEO_OUTPUT
+; Avoid BIOS INT 10h teletype output. Some systems/cards can blank the display
+; permanently when the option ROM prints through INT 10h very early in boot.
+; The ROM writes directly to the active text page when the current mode is text.
 
 ;
 ; The base I/O port for the XTMAX SD Card.
@@ -94,17 +95,6 @@ entry:
     mov ax, welcome_msg
     call print_string
 
-    mov ax, rom_base_msg
-    call print_string
-    mov ax, cs
-    call print_hex
-    mov ax, colon
-    call print_string
-    mov ax, beginning_of_rom
-    call print_hex
-    mov ax, newline
-    call print_string
-
 ;
 ; Initialize the SD Card.
 ;
@@ -142,8 +132,6 @@ entry:
 ; Determine our fixed disk ID.
 ;
 .identify_fixed_disk:
-    mov ax, disk_id_msg
-    call print_string
     mov ax, 0x40            ; BIOS data area
     mov es, ax
 %ifndef TAKE_OVER_FIXED_DISK_0
@@ -155,21 +143,11 @@ entry:
     mov dx, REG_SCRATCH_0   ; save fixed disk id
     out dx, al
     push ax
-    call print_hex
-    mov ax, newline
-    call print_string
 .update_bda:
 ;
 ; Increment the number of fixed disks in the BIOS Data Area.
 ;
-    mov ax, num_drives_msg
-    call print_string
     inc byte es:[0x75]      ; HDNUM
-    mov al, es:[0x75]
-    xor ah, ah
-    call print_hex
-    mov ax, newline
-    call print_string
     pop ax
 
 ;
@@ -438,17 +416,6 @@ func_unsupported:
 %ifdef DEBUG
     call debug_handler
 %endif
-    push ax
-    mov ax, unsupported_msg
-    call print_string
-    pop ax
-    push ax
-    mov al, ah
-    xor ah, ah
-    call print_hex
-    mov ax, newline
-    call print_string
-    pop ax
     jmp error_invalid_parameter
 
 ;
@@ -938,8 +905,6 @@ succeeded:
 ; Attempt to boot from floppy (single try for expediency).
 ;
 int19h_entry:
-    mov ax, boot_floppy_msg
-    call print_string
     xor dx, dx              ; 1st floppy drive
     call read_sector
 .test_signature:            ; taken from IBM BIOS for XT 286
@@ -965,8 +930,6 @@ int18h_entry:
     test ax, ax             ; caller is boot sector, must be no active partition
     mov ax, no_part_msg
     je no_boot
-    mov ax, boot_sd_msg
-    call print_string
     mov dx, 0x80            ; MBR can only boot from 1st fixed disk
     call read_sector
 .test_signature:
@@ -1484,18 +1447,12 @@ debug_handler:
 ;
 
 welcome_msg     db 'BootROM for XTMax v1.0', 0xD, 0xA
-                db 'Copyright (c) 2025 Matthieu Bucchianeri', 0xD, 0xA, 0
-rom_base_msg    db 'ROM Base Address        = ', 0
+                db 0
 sd_flags        db 0
 sd_response_buffer db 0, 0, 0, 0
 init_ok_msg     db 'SD Card initialized successfully', 0xD, 0xA, 0
 init_error_msg  db 'SD Card failed to initialize', 0xD, 0xA, 0
-disk_id_msg     db 'Fixed Disk ID           = ', 0
-num_drives_msg  db 'Total Fixed Disk Drives = ', 0
-unsupported_msg db 'Unsupported INT13h Function ', 0
 %ifdef USE_BOOTSTRAP
-boot_floppy_msg db 'Attempting boot from floppy...', 0xD, 0xA, 0
-boot_sd_msg     db 'Attempting boot from fixed disk...', 0xD, 0xA, 0
 no_boot_msg     db 'No bootable media found', 0xD, 0xA, 0
 no_part_msg     db 'No active partition found', 0xD, 0xA, 0
 %endif

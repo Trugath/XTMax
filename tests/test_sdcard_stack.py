@@ -8,6 +8,7 @@ import unittest
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 FIRMWARE = REPO_ROOT / "firmware" / "teensy" / "XTMax.ino"
 BOOTROM = REPO_ROOT / "software" / "bootrom" / "bootrom.asm"
+BOOTROM_UTILS = REPO_ROOT / "software" / "bootrom" / "utils.inc"
 
 
 class SDCardStackTests(unittest.TestCase):
@@ -54,6 +55,16 @@ class SDCardStackTests(unittest.TestCase):
             "test byte [sd_flags], SD_FLAG_BLOCK_ADDRESSING",
         ):
             self.assertIn(needle, text)
+
+    def test_bootrom_uses_direct_text_output_on_active_page(self) -> None:
+        bootrom_text = BOOTROM.read_text()
+        utils_text = BOOTROM_UTILS.read_text()
+        self.assertNotIn("QUIET_VIDEO_OUTPUT", bootrom_text)
+        self.assertIn("call print_char", utils_text)
+        self.assertNotIn("int 0x10", utils_text)
+        self.assertIn("mov bl, [0x62]", utils_text)
+        self.assertIn("mov cx, [0x4e]", utils_text)
+        self.assertIn("mov [bx+0x50], dx", utils_text)
 
 
 if __name__ == "__main__":
