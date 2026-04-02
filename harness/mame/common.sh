@@ -50,24 +50,39 @@ xtmax_mame_patched_bin() {
   printf '%s\n' "${XTMAX_MAME_PATCHED_BIN:-$(xtmax_mame_source_dir)/mame}"
 }
 
-build_xtmax_test_boot_image() {
-  local asm_src="${XTMAX_HARNESS_ROOT}/boot/xtmax_test_boot.asm"
-  local boot_bin="${XTMAX_MAME_ARTIFACTS_DIR}/xtmax-test-boot.bin"
-  local image_path="$1"
+build_xtmax_boot_image_from_asm() {
+  local asm_src="$1"
+  local boot_bin="$2"
+  local image_path="$3"
 
   if [[ ! -f "${asm_src}" ]]; then
-    echo "XTMax test boot sector source not found: ${asm_src}" >&2
+    echo "XTMax boot sector source not found: ${asm_src}" >&2
     return 1
   fi
 
   if ! command -v nasm >/dev/null 2>&1; then
-    echo "nasm is required to build the XTMax test boot image." >&2
+    echo "nasm is required to build XTMax boot images." >&2
     return 1
   fi
 
   mkdir -p "$(dirname "${image_path}")"
+  mkdir -p "$(dirname "${boot_bin}")"
   nasm -f bin -o "${boot_bin}" "${asm_src}"
   cp "${boot_bin}" "${image_path}"
+}
+
+build_xtmax_test_boot_image() {
+  build_xtmax_boot_image_from_asm \
+    "${XTMAX_HARNESS_ROOT}/boot/xtmax_test_boot.asm" \
+    "${XTMAX_MAME_ARTIFACTS_DIR}/xtmax-test-boot.bin" \
+    "$1"
+}
+
+build_xtmax_invalid_boot_image() {
+  build_xtmax_boot_image_from_asm \
+    "${XTMAX_HARNESS_ROOT}/boot/xtmax_invalid_boot.asm" \
+    "${XTMAX_MAME_ARTIFACTS_DIR}/xtmax-invalid-boot.bin" \
+    "$1"
 }
 
 stage_xtmax_device_bootrom() {

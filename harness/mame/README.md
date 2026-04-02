@@ -118,6 +118,16 @@ By default that uses:
 
 That SD image is created automatically on first run from `harness/mame/boot/xtmax_test_boot.asm` and is treated as raw 512-byte sectors. Set `XTMAX_MAME_KEEP_EXISTING_SD_IMAGE=1` to reuse an existing image instead of regenerating it.
 
+For a two-branch Boot ROM regression, run:
+
+```bash
+./harness/mame/run-xtmax-bootrom-tests.sh
+```
+
+That runs:
+- a success case with a generated boot sector that prints `XTMAX TEST BOOT`
+- an invalid-boot-sector case that asserts the CPU halts back inside the XTMax ROM after rejecting the loaded sector
+
 To force the old no-card failure-path test instead:
 
 ```bash

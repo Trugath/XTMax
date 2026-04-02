@@ -18,13 +18,19 @@ seconds="${MAME_SECONDS_TO_RUN:-120}"
 slot="${XTMAX_MAME_DEVICE_SLOT:-isa5}"
 assert_file="${XTMAX_MAME_ARTIFACTS_DIR}/assertions/xtmax-device-test.txt"
 patched_bin="$(xtmax_mame_patched_bin)"
+assert_script="${XTMAX_MAME_ASSERT_SCRIPT:-${XTMAX_HARNESS_ROOT}/lua/assert_textmode_dir.lua}"
 
 mkdir -p "${XTMAX_MAME_ARTIFACTS_DIR}/assertions"
 rm -f "${assert_file}"
 
 if [[ -z "${XTMAX_MAME_NO_SD_IMAGE:-}" ]]; then
-  export XTMAX_MAME_SD_IMAGE="${XTMAX_MAME_SD_IMAGE:-${XTMAX_MAME_ARTIFACTS_DIR}/xtmax-sd.img}"
-  if [[ -z "${XTMAX_MAME_KEEP_EXISTING_SD_IMAGE:-}" || ! -s "${XTMAX_MAME_SD_IMAGE}" ]]; then
+  using_default_sd_image=0
+  if [[ -z "${XTMAX_MAME_SD_IMAGE:-}" ]]; then
+    export XTMAX_MAME_SD_IMAGE="${XTMAX_MAME_ARTIFACTS_DIR}/xtmax-sd.img"
+    using_default_sd_image=1
+  fi
+
+  if [[ "${using_default_sd_image}" -eq 1 && ( -z "${XTMAX_MAME_KEEP_EXISTING_SD_IMAGE:-}" || ! -s "${XTMAX_MAME_SD_IMAGE}" ) ]]; then
     build_xtmax_test_boot_image "${XTMAX_MAME_SD_IMAGE}"
   fi
 fi
@@ -35,6 +41,9 @@ if [[ -n "${XTMAX_MAME_SD_IMAGE:-}" ]]; then
 else
   export XTMAX_MAME_EXPECT_TEXT="${XTMAX_MAME_EXPECT_TEXT:-BOOTROM FOR XTMAX V1.0|SD CARD FAILED TO INITIALIZE}"
 fi
+export XTMAX_MAME_EXPECT_CS="${XTMAX_MAME_EXPECT_CS:-}"
+export XTMAX_MAME_EXPECT_IP="${XTMAX_MAME_EXPECT_IP:-}"
+export XTMAX_MAME_EXPECT_HALT="${XTMAX_MAME_EXPECT_HALT:-}"
 export XTMAX_MAME_ASSERT_STARTUP_WAIT="${XTMAX_MAME_ASSERT_STARTUP_WAIT:-25}"
 export XTMAX_MAME_ASSERT_TIMEOUT="${XTMAX_MAME_ASSERT_TIMEOUT:-75}"
 
@@ -59,7 +68,7 @@ cmd=(
   "${machine}"
   -bios "${bios}"
   -seconds_to_run "${seconds}"
-  -autoboot_script "${XTMAX_HARNESS_ROOT}/lua/assert_textmode_dir.lua"
+  -autoboot_script "${assert_script}"
   -isa4 ""
   "-${slot}" xtmax
 )
