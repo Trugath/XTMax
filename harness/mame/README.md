@@ -112,10 +112,11 @@ By default that uses:
 - machine: `ibm5160`
 - BIOS: `rev2`
 - slot: `isa5`
-- a raw SD image at `harness/mame/artifacts/xtmax-sd.img`
-- expected text: `BootROM for XTMax v1.0` and `SD Card initialized successfully`
+- a generated raw SD image at `harness/mame/artifacts/xtmax-sd.img`
+- a generated boot sector that prints `XTMAX TEST BOOT`
+- expected text: `XTMAX TEST BOOT`
 
-That SD image is created automatically on first run and is treated as raw 512-byte sectors.
+That SD image is created automatically on first run from `harness/mame/boot/xtmax_test_boot.asm` and is treated as raw 512-byte sectors. Set `XTMAX_MAME_KEEP_EXISTING_SD_IMAGE=1` to reuse an existing image instead of regenerating it.
 
 To force the old no-card failure-path test instead:
 

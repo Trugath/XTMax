@@ -50,6 +50,26 @@ xtmax_mame_patched_bin() {
   printf '%s\n' "${XTMAX_MAME_PATCHED_BIN:-$(xtmax_mame_source_dir)/mame}"
 }
 
+build_xtmax_test_boot_image() {
+  local asm_src="${XTMAX_HARNESS_ROOT}/boot/xtmax_test_boot.asm"
+  local boot_bin="${XTMAX_MAME_ARTIFACTS_DIR}/xtmax-test-boot.bin"
+  local image_path="$1"
+
+  if [[ ! -f "${asm_src}" ]]; then
+    echo "XTMax test boot sector source not found: ${asm_src}" >&2
+    return 1
+  fi
+
+  if ! command -v nasm >/dev/null 2>&1; then
+    echo "nasm is required to build the XTMax test boot image." >&2
+    return 1
+  fi
+
+  mkdir -p "$(dirname "${image_path}")"
+  nasm -f bin -o "${boot_bin}" "${asm_src}"
+  cp "${boot_bin}" "${image_path}"
+}
+
 stage_xtmax_device_bootrom() {
   local bootrom_src="${XTMAX_REPO_ROOT}/firmware/teensy/bootrom.bin"
   local bootrom_dir="${XTMAX_MAME_ROMS_DIR}/xtmax"
