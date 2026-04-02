@@ -14,12 +14,17 @@ re-deploying the Teensy sketch. The address **must** be a multiple of 2048 bytes
 
 ### Boot-time ROM services
 
-During the bootstrap path, the option ROM exposes a tiny one-boot services menu. When `X?` appears, press `X` to open it:
+During the bootstrap path, the option ROM shows a small `X` prompt. Press `X` there to load the XTMax service stage from reserved sectors on the SD card.
 
-- `F`: force floppy boot for this boot attempt
-- `S`: force SD boot for this boot attempt
-- `D`: run a quick SD boot-sector diagnostic
-- `C`: continue with the default boot path
+The current stage-1 loader contract is intentionally small:
+
+- sector 1: normal boot sector / MBR
+- sector 2: XTMax service header
+- sector 3 onward: XTMax service payload
+- load address: `0x9000:0000`
+- entry point: `0x9000:0000`
+
+If the payload returns with `RETF`, the Boot ROM resumes its normal boot flow.
 
 ### Preparing an SD Card for use with MS-DOS
 

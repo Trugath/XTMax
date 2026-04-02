@@ -33,9 +33,16 @@ cpu 8086    ; ensure we remain compatible with 8086
 ;
 %define USE_BOOTSTRAP
 %define SD_FLAG_BLOCK_ADDRESSING 0x01
-%define BOOT_SELECTION_DEFAULT 0
-%define BOOT_SELECTION_FLOPPY  1
-%define BOOT_SELECTION_SD      2
+%define XTMAX_WORK_BASE                0x0500
+%define XTMAX_WORK_SERVICE_SEEN        (XTMAX_WORK_BASE + 0)
+%define XTMAX_WORK_SD_FLAGS            (XTMAX_WORK_BASE + 1)
+%define XTMAX_WORK_SD_RESPONSE         (XTMAX_WORK_BASE + 2)
+%define XTMAX_SERVICE_HEADER_SEG      0x0000
+%define XTMAX_SERVICE_HEADER_OFF      0x0600
+%define XTMAX_SERVICE_HEADER_SECTOR   2
+%define XTMAX_SERVICE_PAYLOAD_SECTOR  3
+%define XTMAX_SERVICE_MAX_SECTORS     61
+%define XTMAX_SERVICE_LOAD_SEG        0x9000
 
 ;
 ; Whether we are going to rename the BIOS's 1st disk to be the second disk.
@@ -908,10 +915,7 @@ succeeded:
 ; Attempt to boot from floppy (single try for expediency).
 ;
 int19h_entry:
-.service_menu:
-    call maybe_show_boot_menu
-    cmp al, BOOT_SELECTION_SD
-    je int18h_entry.boot_sd
+    call maybe_launch_service_stage
 .boot_floppy:
     xor dx, dx              ; 1st floppy drive
     call read_sector
@@ -933,9 +937,7 @@ int19h_entry:
 ; Attempt to boot from SD Card.
 ;
 int18h_entry:
-    call maybe_show_boot_menu
-    cmp al, BOOT_SELECTION_FLOPPY
-    je int19h_entry.boot_floppy
+    call maybe_launch_service_stage
 .boot_sd:
     mov bp, sp
     mov ax, ss:[bp+2]
@@ -975,56 +977,84 @@ read_sector:
     int 0x13
     ret
 
-maybe_show_boot_menu:
-    cmp byte [boot_menu_seen], 0
+maybe_launch_service_stage:
+    push ds
+    push bx
+    xor bx, bx
+    mov ds, bx
+    cmp byte [XTMAX_WORK_SERVICE_SEEN], 0
+    pop bx
+    pop ds
     jne .skip
-    inc byte [boot_menu_seen]
-    mov ax, menu_hint_msg
+    push ds
+    push bx
+    xor bx, bx
+    mov ds, bx
+    inc byte [XTMAX_WORK_SERVICE_SEEN]
+    pop bx
+    pop ds
+    mov ax, service_hint_msg
     call print_string
-    call poll_menu_hotkey
+    call poll_service_hotkey
     and al, 0xdf
     cmp al, 'X'
     jne .skip
-.show_menu:
-    mov ax, menu_msg
+    call load_service_stage
+    jnc .skip
+    mov ax, service_fail_msg
     call print_string
-.wait_key:
-    xor ah, ah
-    int 0x16
-    and al, 0xdf
-    cmp al, 'F'
-    je .boot_floppy
-    cmp al, 'S'
-    je .boot_sd
-    cmp al, 'D'
-    je .diag
-    cmp al, 'C'
-    je .skip
-    jmp .wait_key
-.diag:
-    mov dx, 0x80
-    call read_sector
-    jc .diag_fail
-    cmp word [0x7c00+510], 0xaa55
-    jne .diag_fail
-    mov ax, diag_ok_msg
-    call print_string
-    jmp .show_menu
-.diag_fail:
-    mov ax, diag_fail_msg
-    call print_string
-    jmp .show_menu
-.boot_floppy:
-    mov al, BOOT_SELECTION_FLOPPY
-    ret
-.boot_sd:
-    mov al, BOOT_SELECTION_SD
-    ret
 .skip:
-    xor al, al
     ret
 
-poll_menu_hotkey:
+load_service_stage:
+    mov ax, XTMAX_SERVICE_HEADER_SEG
+    mov es, ax
+    mov bx, XTMAX_SERVICE_HEADER_OFF
+    mov al, 1
+    xor ch, ch
+    mov cl, XTMAX_SERVICE_HEADER_SECTOR
+    xor dh, dh
+    call func_02_read_sector
+    jc .error
+    xor ax, ax
+    mov ds, ax
+    cmp word [XTMAX_SERVICE_HEADER_OFF+0], 0x5458
+    jne .error
+    mov al, [XTMAX_SERVICE_HEADER_OFF+2]
+    or al, al
+    jz .error
+    cmp al, XTMAX_SERVICE_MAX_SECTORS
+    ja .error
+    mov ah, 0x02
+    mov bx, XTMAX_SERVICE_LOAD_SEG
+    mov es, bx
+    xor bx, bx
+    xor ch, ch
+    mov cl, XTMAX_SERVICE_PAYLOAD_SECTOR
+    xor dh, dh
+    call func_02_read_sector
+    jc .error
+    mov dl, 0x80
+    mov bx, XTMAX_IO_BASE
+    mov ax, XTMAX_SERVICE_LOAD_SEG
+    mov ds, ax
+    mov es, ax
+    push cs
+    mov ax, .returned
+    push ax
+    mov ax, XTMAX_SERVICE_LOAD_SEG
+    push ax
+    xor ax, ax
+    push ax
+    retf
+.returned:
+    clc
+    ret
+.error:
+    stc
+    ret
+
+poll_service_hotkey:
     push ds
     push bx
     push cx
@@ -1206,6 +1236,7 @@ delay_20ms_xt:
 init_sd:
     push ax
     push ds
+    push es
     push bx
     push cx
     push dx
@@ -1213,7 +1244,9 @@ init_sd:
     push si
     mov ax, cs
     mov ds, ax
-    mov byte [sd_flags], 0
+    xor ax, ax
+    mov es, ax
+    mov byte [es:XTMAX_WORK_SD_FLAGS], 0
     mov dx, REG_CS
     mov al, 1               ; deassert chip select
 .power_up_delay:
@@ -1254,15 +1287,15 @@ init_sd:
     mov ax, send_cmd8_msg
     call print_string
 %endif
-    mov di, sd_response_buffer
+    mov di, XTMAX_WORK_SD_RESPONSE
     mov si, cmd8
     mov cx, 4               ; trailing R7 payload
     mov ah, 1               ; expect idle state
     call send_sd_init_cmd
     jc .legacy_init
-    cmp byte [sd_response_buffer+2], 0x01
+    cmp byte [es:XTMAX_WORK_SD_RESPONSE+2], 0x01
     jne .legacy_init
-    cmp byte [sd_response_buffer+3], 0xAA
+    cmp byte [es:XTMAX_WORK_SD_RESPONSE+3], 0xAA
     jne .legacy_init
 .v2_acmd41:
     mov dx, REG_TIMEOUT
@@ -1293,15 +1326,15 @@ init_sd:
     stc
     jmp .exit
 .read_ocr:
-    mov di, sd_response_buffer
+    mov di, XTMAX_WORK_SD_RESPONSE
     mov si, cmd58
     mov cx, 4               ; trailing OCR payload
     mov ah, 0               ; expect ready state
     call send_sd_init_cmd
     jc .exit
-    test byte [sd_response_buffer], 0x40
+    test byte [es:XTMAX_WORK_SD_RESPONSE], 0x40
     jz .exit
-    or byte [sd_flags], SD_FLAG_BLOCK_ADDRESSING
+    or byte [es:XTMAX_WORK_SD_FLAGS], SD_FLAG_BLOCK_ADDRESSING
     jmp .exit
 .legacy_init:
     xor di, di
@@ -1372,6 +1405,7 @@ init_sd:
     pop dx
     pop cx
     pop bx
+    pop es
     pop ds
     jc .error
 .success:
@@ -1389,7 +1423,7 @@ init_sd:
 ; Send an initialization command to the SD card
 ; in:  DS:SI = command buffer
 ;      CX = response payload size after R1 (in bytes)
-;      DS:DI = optional buffer for response payload (DI=0 to discard)
+;      ES:DI = optional buffer for response payload (DI=0 to discard)
 ;      AH = expected highest status
 ; out: AL = R1 response byte
 ;      CX = <TRASH>
@@ -1496,7 +1530,11 @@ send_sd_read_write_cmd:
 ; out: BX:AX = command argument
 ;
 adjust_sd_command_address:
-    test byte [sd_flags], SD_FLAG_BLOCK_ADDRESSING
+    push ds
+    xor cx, cx
+    mov ds, cx
+    test byte [XTMAX_WORK_SD_FLAGS], SD_FLAG_BLOCK_ADDRESSING
+    pop ds
     jnz .done
     push cx
     mov cx, 9
@@ -1534,19 +1572,14 @@ debug_handler:
 ; Strings
 ;
 
-welcome_msg     db 'BootROM for XTMax v1.0', 0xD, 0xA
+welcome_msg     db 'XTMax BootROM', 0xD, 0xA
                 db 0
-boot_menu_seen  db 0
-sd_flags        db 0
-sd_response_buffer db 0, 0, 0, 0
 init_ok_msg     db 'SD Card initialized successfully', 0xD, 0xA, 0
 init_error_msg  db 'SD Card failed to initialize', 0xD, 0xA, 0
 %ifdef USE_BOOTSTRAP
-menu_hint_msg   db 'X?', 0xD, 0xA, 0
-menu_msg        db 'F/S/D/C', 0xD, 0xA, 0
-diag_ok_msg     db 'OK', 0xD, 0xA, 0
-diag_fail_msg   db 'FAIL', 0xD, 0xA, 0
-no_boot_msg     db 'No bootable media found', 0xD, 0xA, 0
+service_hint_msg db 'X', 0xD, 0xA, 0
+service_fail_msg db 'NO', 0
+no_boot_msg     db 'No boot media', 0xD, 0xA, 0
 no_part_msg     db 'No active partition found', 0xD, 0xA, 0
 %endif
 

@@ -99,6 +99,45 @@ build_xtmax_ems_boot_image() {
     "$1"
 }
 
+build_xtmax_service_image() {
+  local image_path="$1"
+  local boot_bin="${XTMAX_MAME_ARTIFACTS_DIR}/xtmax-test-boot.bin"
+  local stage_bin="${XTMAX_MAME_ARTIFACTS_DIR}/xtmax-service-stage.bin"
+
+  if ! command -v nasm >/dev/null 2>&1; then
+    echo "nasm is required to build XTMax service images." >&2
+    return 1
+  fi
+
+  mkdir -p "$(dirname "${image_path}")"
+  nasm -f bin -o "${boot_bin}" "${XTMAX_HARNESS_ROOT}/boot/xtmax_test_boot.asm"
+  nasm -f bin -o "${stage_bin}" "${XTMAX_HARNESS_ROOT}/boot/xtmax_service_stage.asm"
+
+  XTMAX_BOOT_BIN="${boot_bin}" XTMAX_STAGE_BIN="${stage_bin}" XTMAX_IMAGE_PATH="${image_path}" python3 - <<'PY'
+import math
+import os
+from pathlib import Path
+
+boot = Path(os.environ["XTMAX_BOOT_BIN"]).read_bytes()
+stage = Path(os.environ["XTMAX_STAGE_BIN"]).read_bytes()
+image_path = Path(os.environ["XTMAX_IMAGE_PATH"])
+
+if len(boot) != 512:
+    raise SystemExit(f"Expected 512-byte boot sector, got {len(boot)} bytes")
+
+sector_count = max(1, math.ceil(len(stage) / 512))
+if sector_count > 61:
+    raise SystemExit(f"Service stage too large for reserved track-0 area: {sector_count} sectors")
+
+header = bytearray(512)
+header[0:2] = b"XT"
+header[2] = sector_count
+
+payload = stage.ljust(sector_count * 512, b"\x00")
+image_path.write_bytes(boot + header + payload)
+PY
+}
+
 stage_xtmax_device_bootrom() {
   local bootrom_src="${XTMAX_REPO_ROOT}/firmware/teensy/bootrom.bin"
   local bootrom_dir="${XTMAX_MAME_ROMS_DIR}/xtmax"

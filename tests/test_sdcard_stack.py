@@ -49,10 +49,11 @@ class SDCardStackTests(unittest.TestCase):
             "cmd16       db",
             "cmd58       db",
             "acmd41_legacy db",
-            "sd_flags        db 0",
+            "XTMAX_WORK_SD_FLAGS",
+            "XTMAX_WORK_SD_RESPONSE",
             "adjust_sd_command_address:",
             "call adjust_sd_command_address",
-            "test byte [sd_flags], SD_FLAG_BLOCK_ADDRESSING",
+            "test byte [XTMAX_WORK_SD_FLAGS], SD_FLAG_BLOCK_ADDRESSING",
         ):
             self.assertIn(needle, text)
 
@@ -66,17 +67,17 @@ class SDCardStackTests(unittest.TestCase):
         self.assertIn("mov cx, [0x4e]", utils_text)
         self.assertIn("mov [bx+0x50], dx", utils_text)
 
-    def test_bootrom_has_runtime_service_menu(self) -> None:
+    def test_bootrom_has_service_stage_loader(self) -> None:
         text = BOOTROM.read_text()
         for needle in (
-            "maybe_show_boot_menu:",
-            "poll_menu_hotkey:",
-            "menu_hint_msg",
-            "menu_msg",
-            "diag_ok_msg",
-            "diag_fail_msg",
-            "BOOT_SELECTION_FLOPPY",
-            "BOOT_SELECTION_SD",
+            "maybe_launch_service_stage:",
+            "load_service_stage:",
+            "poll_service_hotkey:",
+            "service_hint_msg",
+            "service_fail_msg",
+            "XTMAX_SERVICE_HEADER_SECTOR",
+            "XTMAX_SERVICE_PAYLOAD_SECTOR",
+            "XTMAX_SERVICE_LOAD_SEG",
         ):
             self.assertIn(needle, text)
 
