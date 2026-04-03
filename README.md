@@ -12,6 +12,7 @@ Unless a subdirectory or file says otherwise, this fork is distributed under the
 - [`software`](./software): Boot ROM source, DOS storage/EMS/UMB drivers, prebuilt binaries, and legacy build toolchains.
 - [`images`](./images): prebuilt MS-DOS driver disk images and notes.
 - [`hardware`](./hardware): KiCad source files, schematic PDF, and generated fabrication outputs.
+- [`host`](./host): host-side tools, including the Rust USB-link utility for XTMax remote-control work.
 - [`scripts`](./scripts): host-side tooling, currently for building the floppy images.
 - [`tests`](./tests): host-side verification for repo-maintained behaviors that can be checked without hardware.
 - [`docs/REPO_LAYOUT.md`](./docs/REPO_LAYOUT.md): quick map of which files are primary sources, generated artifacts, and helper assets.
@@ -23,6 +24,7 @@ If you are trying to:
 - Flash firmware: read [`firmware/teensy/AGENTS.md`](./firmware/teensy/AGENTS.md).
 - Understand ISA decode, option ROM placement, or IBM 5155 coexistence: read [`firmware/teensy/IO_PORTS.md`](./firmware/teensy/IO_PORTS.md).
 - Use or rebuild the DOS drivers: read [`software/README.md`](./software/README.md).
+- Work on the host-side USB link or remote-console tooling: start with [`host/xtmax-host`](./host/xtmax-host).
 - Refresh the floppy images: read [`images/README.txt`](./images/README.txt) and run [`scripts/build_xtmax_floppy.py`](./scripts/build_xtmax_floppy.py).
 - Work on the Boot ROM SD stack: start with [`software/bootrom/bootrom.asm`](./software/bootrom/bootrom.asm), then regenerate [`firmware/teensy/bootrom.h`](./firmware/teensy/bootrom.h).
 

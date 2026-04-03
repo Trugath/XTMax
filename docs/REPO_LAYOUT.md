@@ -10,6 +10,7 @@ This repository mixes source code, generated artifacts, third-party legacy toolc
 - [`software/emm`](../software/emm): EMS driver source used for `XTEMM.EXE`.
 - [`software/umb`](../software/umb): UMB driver source used for `XTUMBS.SYS` and `TEST!UMB.EXE`.
 - [`hardware/pcb`](../hardware/pcb): KiCad project sources.
+- [`host/xtmax-host`](../host/xtmax-host): Rust host-side utility for the XTMax USB link foundation.
 - [`scripts/build_xtmax_floppy.py`](../scripts/build_xtmax_floppy.py): floppy image builder.
 - [`tests/test_sdcard_stack.py`](../tests/test_sdcard_stack.py): host-side tests.
 
