@@ -1,37 +1,87 @@
-# XTMax (Teensy 4.1)
+# XTMax Teensy Firmware Guide
+
+This directory contains the primary Teensy 4.1 firmware source and the generated Boot ROM artifacts consumed by that firmware.
+
+## Primary Files
+
+- [teensy.ino](./teensy.ino): main hardware-facing firmware
+- [xtmax_core.h](./xtmax_core.h) and [xtmax_core.cpp](./xtmax_core.cpp): shared XT-visible state and decode logic
+- [bootrom.h](./bootrom.h): generated header consumed by the sketch
+- [bootrom.bin](./bootrom.bin): generated ROM binary artifact
+- [IO_PORTS.md](./IO_PORTS.md): decode map, coexistence notes, and AUX/MMAN/SD port assignments
 
 ## Build
 
-- **Arduino IDE** with **Teensyduino** add-on: open `teensy.ino`, select **Teensy 4.1**, upload.
-- **Optional CLI:** `arduino-cli compile --fqbn teensy:avr:teensy41 .` from this directory (requires Teensy board package).
+From the repository root:
 
-## MS-DOS driver floppy (.img)
+```bash
+arduino-cli compile --fqbn teensy:avr:teensy41 firmware/teensy
+```
 
-From the **XTMax repository root**: run `python scripts/build_xtmax_floppy.py` after `pip install -r scripts/requirements-floppy.txt`. Output: [`images/xtmax360.img`](../../images/xtmax360.img). See [`images/README.txt`](../../images/README.txt).
-The generated image is a driver/data disk (not DOS bootable) until system files are installed with `SYS A:`.
+You can also open [teensy.ino](./teensy.ino) in Arduino IDE with Teensyduino and select `Teensy 4.1`.
 
-## Blank screen after RAM test (hangs before DOS)
+## If You Edit Specific Areas
 
-1. For machines that blank or hang after the RAM test, set **`XTMAX_DISABLE_BOOTROM_MAP` = `1`** so the Teensy does **not** map the option ROM at `0xCE000` or the trailing SD MMIO page. Reflash after changing it.
-2. The option ROM can **clear the screen** and **stall** (SD init) **even with no SD card**. With ROM mapping off, use **`XTSD.SYS`** from floppy for SD.
-3. If it is **still** blank, set **`XTMAX_SKIP_PSRAM_INIT` to `1`** (no PSRAM / EMS not needed yet) and reflash — skips quad-SPI PSRAM setup at boot.
-4. **Isolate:** boot the 5155 **with XTMax removed**. If the machine still blanks, the fault is not the Teensy sketch (video, RAM, or another card).
-5. On IBM 5155-class systems, keep BootROM built with **`QUIET_VIDEO_OUTPUT`** ([`bootrom.asm`](../../software/bootrom/bootrom.asm)) to suppress ROM INT 10h teletype output that can blank the display.
+### Boot ROM interaction
 
-## Performance tuning (firmware)
+If you change SD register behavior, Boot ROM protocol, ROM mapping, or service-loader assumptions:
 
-Timing `#define`s are at the top of `teensy.ino` (`SD_SPI_BIT_TIME_NS`, `IO_WRITE_SETTLE_NS`, `MUX_DATA_SWITCH_NS`, `PSRAM_CONFIGURE_DELAY_US`, `XTMAX_PSRAM_EARLY_CHRDY`). If **SD/EMS** glitch after changes, increase SPI delay or set `XTMAX_PSRAM_EARLY_CHRDY` to `0`.
+1. update [software/bootrom/bootrom.asm](../../software/bootrom/bootrom.asm) as needed
+2. regenerate [bootrom.bin](./bootrom.bin) and [bootrom.h](./bootrom.h)
+3. rerun the host-side and MAME regressions that cover Boot ROM behavior
 
-## Configuration
+### Shared host-link / AUX block
 
-- **I/O / coexistence:** [IO_PORTS.md](IO_PORTS.md)
-- **Conventional RAM:** default is **`XTMAX_DISABLE_CONVENTIONAL_RAM_MAP` = `1`** so XTMax ignores 0–640 KB (recommended with planar + SixPakPlus). Set to **`0`** only if XTMax must emulate conventional RAM. If POST showed wrong RAM (e.g. 192K vs 640K), keep default `1`.
+If you change the AUX block at `0x290-0x297`, update and re-check all of:
 
-## Hardware validation (IBM 5155)
+- [xtmax_core.cpp](./xtmax_core.cpp)
+- [teensy.ino](./teensy.ino)
+- [host/xtmax-host](../../host/xtmax-host)
+- [harness/mame/patches/0001-add-xtmax-phase1-card.patch](../../harness/mame/patches/0001-add-xtmax-phase1-card.patch)
 
-1. Install the card in a **full-length** slot if the PCB requires it.
-2. Flash firmware, power on: confirm **POST** and **640 KB** conventional memory with CHKDSK / DOS.
-3. Confirm option ROM messages if the BIOS scans `0xCE000`.
-4. Details: [IO_PORTS.md](IO_PORTS.md).
+### Memory map / MMAN
 
-Automated CI cannot run this firmware; build verification is **Arduino compile success** on your workstation.
+If you change `MMAN_BASE`, `SD_BASE`, `AUX_BASE`, ROM placement, or conventional-memory mapping assumptions, re-check [IO_PORTS.md](./IO_PORTS.md) and the DOS-driver notes in [software/README.md](../../software/README.md).
+
+## Useful Verification
+
+### Fast local checks
+
+```bash
+python3 -m unittest discover -s tests -p 'test_*.py'
+arduino-cli compile --fqbn teensy:avr:teensy41 firmware/teensy
+```
+
+### XT-visible regression checks in MAME
+
+These validate the emulated XTMax device model, not the real Teensy timing path:
+
+```bash
+./harness/mame/run-xtmax-bootrom-tests.sh
+./harness/mame/run-xtmax-storage-tests.sh
+./harness/mame/run-xtmax-ems-tests.sh
+./harness/mame/run-xtmax-menu-tests.sh
+./harness/mame/run-xtmax-mirror-tests.sh
+```
+
+## Hardware Bring-Up Notes
+
+### Blank screen or hang right after RAM test
+
+1. Set `XTMAX_DISABLE_BOOTROM_MAP` to `1` in [teensy.ino](./teensy.ino) so XTMax does not map the option ROM or trailing SD MMIO page.
+2. Reflash and retest.
+3. If the machine is still unstable, set `XTMAX_SKIP_PSRAM_INIT` to `1` to remove PSRAM init from the boot path.
+4. If conventional memory is already fully provided by the motherboard and other cards, keep `XTMAX_DISABLE_CONVENTIONAL_RAM_MAP` at `1`.
+5. For SD access without the ROM, use `XTSD.SYS` from floppy.
+
+### IBM 5155 / similar XT-class systems
+
+- Mechanical fit still matters; use a slot that actually accommodates the XTMax PCB.
+- 4.77 MHz timing margins are real. The timing defines near the top of [teensy.ino](./teensy.ino) are the knobs to revisit if SD, EMS, or bus sniffing become marginal.
+- The Boot ROM now uses direct text-memory output on the active page. If video trouble returns, treat that as a regression to investigate rather than relying on old `INT 10h` assumptions.
+
+## Important Limits
+
+- Passing MAME regressions does not prove real ISA timing, PSRAM timing, or USB streaming behavior on hardware.
+- Passing `arduino-cli compile` does not prove the board works in a real XT.
+- This tree contains generated artifacts alongside source. Do not hand-edit generated ROM artifacts unless the task is specifically about the generated file itself.
