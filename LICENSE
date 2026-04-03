@@ -1,6 +1,24 @@
 MIT License
 
-Copyright (c) 2024 Ted Fried
+Copyright (c) 2026 Elliot Stirling
+
+Portions of this software are copyright:
+
+  Copyright (c) 2024 Ted Fried
+  Copyright (c) 2025 Matthieu Bucchianeri
+
+Ted Fried’s contributions include the original MicroCoreLabs XTMax firmware and related
+material. Matthieu Bucchianeri’s contributions include, among other things, the BIOS
+extension ROM source and related firmware work. Individual source files may carry
+their own copyright and license notices; where those differ, the file or accompanying
+notice controls for that file.
+
+Other materials in this repository are distributed under separate terms. Examples
+include third-party or legacy toolchains under software/toolchains/, and components
+such as software/sd/ (see software/sd/LICENSE.TXT). Consult each subtree’s license
+or notice file and the repository README for provenance.
+
+---
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
