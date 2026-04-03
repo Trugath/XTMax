@@ -46,6 +46,12 @@ Run the live text-mode mirror:
 cargo run --manifest-path host/xtmax-host/Cargo.toml -- --port /dev/ttyACM0 mirror-text
 ```
 
+Render a captured mirror log to plain text:
+
+```bash
+cargo run --manifest-path host/xtmax-host/Cargo.toml -- render-log harness/mame/artifacts/xtmax-mirror.log
+```
+
 Inject a line of text:
 
 ```bash

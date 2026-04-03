@@ -4,6 +4,8 @@ mod serial_link;
 
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 
 use keyboard::{KeyEvent, char_to_event, text_to_events};
 use mirror::TextMirror;
@@ -35,6 +37,7 @@ enum Command {
     ResetAux,
     Mirror(MirrorArgs),
     MirrorText,
+    RenderLog(RenderLogArgs),
     DropCount(DropCountArgs),
     SendKey(SendKeyArgs),
     Type(TypeArgs),
@@ -50,6 +53,11 @@ struct MirrorArgs {
 #[derive(Args, Debug)]
 struct DropCountArgs {
     count: u16,
+}
+
+#[derive(Args, Debug)]
+struct RenderLogArgs {
+    path: String,
 }
 
 #[derive(Args, Debug)]
@@ -86,6 +94,7 @@ fn main() -> Result<()> {
             with_link(&connection, |link| link.set_mirror_enabled(args.enabled))
         }
         Command::MirrorText => cmd_mirror_text(&connection),
+        Command::RenderLog(args) => cmd_render_log(args),
         Command::DropCount(args) => {
             with_link(&connection, |link| link.record_mirror_drop(args.count))
         }
@@ -104,6 +113,24 @@ fn main() -> Result<()> {
         }),
         Command::Raw(args) => with_link(&connection, |link| link.write_line(&args.line)),
     }
+}
+
+fn cmd_render_log(args: RenderLogArgs) -> Result<()> {
+    let file = File::open(&args.path)
+        .with_context(|| format!("failed to open mirror log {}", args.path))?;
+    let reader = BufReader::new(file);
+    let mut mirror = TextMirror::new();
+
+    for line in reader.lines() {
+        let line = line.with_context(|| format!("failed to read mirror log {}", args.path))?;
+        if line.is_empty() {
+            continue;
+        }
+        mirror.apply_line(&line)?;
+    }
+
+    println!("{}", mirror.snapshot_text());
+    Ok(())
 }
 
 fn cmd_mirror_text(connection: &ConnectionOptions) -> Result<()> {

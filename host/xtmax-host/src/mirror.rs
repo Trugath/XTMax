@@ -115,6 +115,10 @@ impl TextMirror {
         Ok(())
     }
 
+    pub fn snapshot_text(&self) -> String {
+        self.render_lines().join("\n")
+    }
+
     pub fn restore_terminal(&self) -> Result<()> {
         let mut stdout = io::stdout().lock();
         write!(stdout, "\x1b[?25h\n").context("failed to restore terminal state")?;

@@ -142,6 +142,18 @@ The current synthetic stage is a real menu, not just a banner:
 - `D` runs a simple SD boot-sector diagnostic
 - `C`, `Esc`, or `Enter` return to the Boot ROM so normal boot can continue
 
+For a screen-mirror regression that exercises the Rust host renderer against MAME-generated `VM`/`VI` events, run:
+
+```bash
+./harness/mame/run-xtmax-mirror-tests.sh
+```
+
+That flow:
+- runs the XTMax service-menu path under the patched MAME device model
+- captures mirrored video-memory and video-I/O writes to `harness/mame/artifacts/xtmax-mirror.log`
+- renders the resulting log through `host/xtmax-host render-log`
+- asserts that both `XTMAX SERVICE TOOL` and `XTMAX TEST BOOT` appear in the reconstructed text screen
+
 For a Boot ROM INT 13h storage regression, run:
 
 ```bash

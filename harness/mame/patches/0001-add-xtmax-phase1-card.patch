@@ -29,7 +29,7 @@
  	device.option_add("adlib", ISA8_ADLIB);
 --- a/src/devices/bus/isa/xtmax.cpp
 +++ b/src/devices/bus/isa/xtmax.cpp
-@@ -0,0 +1,551 @@
+@@ -0,0 +1,692 @@
 +// license:BSD-3-Clause
 +// copyright-holders:OpenAI
 +/***************************************************************************
@@ -56,6 +56,7 @@
 +#include <algorithm>
 +#include <array>
 +#include <cstring>
++#include <iomanip>
 +#include <ios>
 +
 +
@@ -69,6 +70,8 @@
 +constexpr offs_t XTMAX_MMAN_END = XTMAX_MMAN_BASE + 0x0f;
 +constexpr offs_t XTMAX_SD_BASE = 0x280;
 +constexpr offs_t XTMAX_SD_END = XTMAX_SD_BASE + 0x07;
++constexpr offs_t XTMAX_AUX_BASE = 0x290;
++constexpr offs_t XTMAX_AUX_END = XTMAX_AUX_BASE + 0x07;
 +constexpr uint32_t XTMAX_PSRAM_SIZE = 16 * 1024 * 1024;
 +
 +constexpr uint32_t SD_SECTOR_SIZE = 512;
@@ -84,7 +87,7 @@
 +
 +ROM_START( xtmax )
 +	ROM_REGION(0x00800, "bootrom", 0)
-+	ROM_LOAD("xtmax_bootrom.bin", 0x000000, 0x000800, CRC(4f379c5c) SHA1(e180db4a69bae780d787f9b77ced33bff2187e84))
++ROM_LOAD("xtmax_bootrom.bin", 0x000000, 0x000800, CRC(4f379c5c) SHA1(e180db4a69bae780d787f9b77ced33bff2187e84))
 +ROM_END
 +
 +DEFINE_DEVICE_TYPE(ISA8_XTMAX, xtmax_device, "xtmax", "XTMax phase-2 adapter")
@@ -97,6 +100,11 @@
 +xtmax_device::xtmax_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
 +	: device_t(mconfig, ISA8_XTMAX, tag, owner, clock)
 +	, device_isa8_card_interface(mconfig, *this)
++	, m_aux_status(0x00)
++	, m_aux_key_ascii(0x00)
++	, m_aux_key_scancode(0x00)
++	, m_aux_key_flags(0x00)
++	, m_mirror_drop_count(0x0000)
 +	, m_sd_config(0x00)
 +	, m_sd_cs(0x01)
 +	, m_sd_timeout(0x01)
@@ -122,6 +130,11 @@
 +	set_isa_device();
 +
 +	save_item(NAME(m_mman));
++	save_item(NAME(m_aux_status));
++	save_item(NAME(m_aux_key_ascii));
++	save_item(NAME(m_aux_key_scancode));
++	save_item(NAME(m_aux_key_flags));
++	save_item(NAME(m_mirror_drop_count));
 +	save_item(NAME(m_sd_scratch));
 +	save_item(NAME(m_sd_config));
 +	save_item(NAME(m_sd_cs));
@@ -149,6 +162,11 @@
 +	std::fill(std::begin(m_sd_resp), std::end(m_sd_resp), 0xff);
 +	std::fill(std::begin(m_sd_write_buffer), std::end(m_sd_write_buffer), 0x00);
 +
++	m_aux_status = 0x00;
++	m_aux_key_ascii = 0x00;
++	m_aux_key_scancode = 0x00;
++	m_aux_key_flags = 0x00;
++	m_mirror_drop_count = 0x0000;
 +	m_sd_config = 0x00;
 +	m_sd_cs = 0x01;
 +	m_sd_timeout = 0x01;
@@ -162,12 +180,49 @@
 +
 +	reset_sd_transaction();
 +	reopen_sd_image();
++	reopen_mirror_log();
 +	std::fill(m_psram.begin(), m_psram.end(), 0x00);
 +
++	m_video_mem_tap.remove();
++	m_video_io_3b_tap.remove();
++	m_video_io_3d_tap.remove();
 +	m_isa->install_rom(this, XTMAX_ROM_BASE, XTMAX_ROM_END, "bootrom");
 +	m_isa->install_memory(XTMAX_SD_WINDOW_BASE, XTMAX_SD_WINDOW_END, read8sm_delegate(*this, FUNC(xtmax_device::sd_window_r)), write8sm_delegate(*this, FUNC(xtmax_device::sd_window_w)));
 +	m_isa->install_device(XTMAX_MMAN_BASE, XTMAX_MMAN_END, read8sm_delegate(*this, FUNC(xtmax_device::mman_r)), write8sm_delegate(*this, FUNC(xtmax_device::mman_w)));
 +	m_isa->install_device(XTMAX_SD_BASE, XTMAX_SD_END, read8sm_delegate(*this, FUNC(xtmax_device::sd_r)), write8sm_delegate(*this, FUNC(xtmax_device::sd_w)));
++	m_isa->install_device(XTMAX_AUX_BASE, XTMAX_AUX_END, read8sm_delegate(*this, FUNC(xtmax_device::aux_r)), write8sm_delegate(*this, FUNC(xtmax_device::aux_w)));
++
++	if (m_mirror_log.is_open())
++	{
++		m_aux_status = 0x0c;
++		m_video_mem_tap = m_isa->memspace().install_write_tap(
++			0xb0000, 0xbffff, "xtmax_video_mem",
++			[this](offs_t offset, uint8_t &data, uint8_t mem_mask)
++			{
++				if (!machine().side_effects_disabled())
++					emit_mirror_mem_write(0xb0000 + offset, data);
++			},
++			&m_video_mem_tap);
++
++		address_space &iospace = m_isa->space(isa8_device::AS_ISA_IO);
++		m_video_io_3b_tap = iospace.install_write_tap(
++			0x03b0, 0x03bf, "xtmax_video_io_3b",
++			[this](offs_t offset, uint8_t &data, uint8_t mem_mask)
++			{
++				if (!machine().side_effects_disabled())
++					emit_mirror_io_write(0x03b0 + offset, data);
++			},
++			&m_video_io_3b_tap);
++		m_video_io_3d_tap = iospace.install_write_tap(
++			0x03d0, 0x03df, "xtmax_video_io_3d",
++			[this](offs_t offset, uint8_t &data, uint8_t mem_mask)
++			{
++				if (!machine().side_effects_disabled())
++					emit_mirror_io_write(0x03d0 + offset, data);
++			},
++			&m_video_io_3d_tap);
++	}
++
 +	update_mman_mapping();
 +}
 +
@@ -197,6 +252,47 @@
 +		logerror("xtmax: failed to open SD image '%s'\n", image_path);
 +}
 +
++void xtmax_device::reopen_mirror_log()
++{
++	if (m_mirror_log.is_open())
++		m_mirror_log.close();
++
++	char const *const log_path = osd_getenv("XTMAX_MAME_MIRROR_LOG");
++	if (!log_path || !log_path[0])
++		return;
++
++	m_mirror_log.open(log_path, std::ios::out | std::ios::trunc);
++	if (!m_mirror_log.is_open())
++		logerror("xtmax: failed to open mirror log '%s'\n", log_path);
++}
++
++void xtmax_device::emit_mirror_line(const char *prefix, const char *region, uint16_t address, uint8_t data)
++{
++	if (!m_mirror_log.is_open() || !(m_aux_status & 0x04))
++		return;
++
++	m_mirror_log << prefix;
++	if (region)
++		m_mirror_log << ' ' << region;
++	m_mirror_log << ' '
++		<< std::uppercase << std::hex << std::setfill('0') << std::setw(4) << unsigned(address)
++		<< ' '
++		<< std::setw(2) << unsigned(data)
++		<< std::dec << '\n';
++	m_mirror_log.flush();
++}
++
++void xtmax_device::emit_mirror_mem_write(offs_t address, uint8_t data)
++{
++	char const *const region = (address < 0xb8000) ? "B000" : "B800";
++	emit_mirror_line("VM", region, uint16_t(address & 0x7fff), data);
++}
++
++void xtmax_device::emit_mirror_io_write(offs_t port, uint8_t data)
++{
++	emit_mirror_line("VI", nullptr, uint16_t(port), data);
++}
++
 +void xtmax_device::reset_sd_transaction()
 +{
 +	m_sd_cmd_pos = 0;
@@ -220,7 +316,6 @@
 +void xtmax_device::queue_sd_sector(uint32_t lba)
 +{
 +	std::array<uint8_t, SD_SECTOR_SIZE> buffer{};
-+
 +	if (image_ready())
 +	{
 +		m_sd_image.clear();
@@ -481,6 +576,52 @@
 +	return 0xff;
 +}
 +
++uint8_t xtmax_device::aux_r(offs_t offset)
++{
++	switch (offset & 0x07)
++	{
++	case 0x00:
++		return m_aux_status | ((m_mirror_drop_count != 0) ? 0x02 : 0x00);
++	case 0x01:
++		return m_aux_key_ascii;
++	case 0x02:
++		return m_aux_key_scancode;
++	case 0x03:
++		return m_aux_key_flags;
++	case 0x05:
++		return m_mirror_drop_count & 0xff;
++	case 0x06:
++		return m_mirror_drop_count >> 8;
++	case 0x07:
++		return 0x01;
++	default:
++		return 0x00;
++	}
++}
++
++void xtmax_device::aux_w(offs_t offset, uint8_t data)
++{
++	switch (offset & 0x07)
++	{
++	case 0x00:
++		if (data & 0x01)
++			m_mirror_drop_count = 0;
++		if (data & 0x04)
++			m_aux_status |= 0x04;
++		else
++			m_aux_status &= ~0x04;
++		break;
++	case 0x04:
++		m_aux_key_ascii = 0;
++		m_aux_key_scancode = 0;
++		m_aux_key_flags = 0;
++		m_aux_status &= ~0x01;
++		break;
++	default:
++		break;
++	}
++}
++
 +void xtmax_device::sd_w(offs_t offset, uint8_t data)
 +{
 +	switch (offset & 0x07)
@@ -583,7 +724,7 @@
 +}
 --- a/src/devices/bus/isa/xtmax.h
 +++ b/src/devices/bus/isa/xtmax.h
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,86 @@
 +// license:BSD-3-Clause
 +// copyright-holders:OpenAI
 +#ifndef MAME_BUS_ISA_XTMAX_H
@@ -609,6 +750,8 @@
 +	void sd_window_w(offs_t offset, uint8_t data);
 +	uint8_t sd_r(offs_t offset);
 +	void sd_w(offs_t offset, uint8_t data);
++	uint8_t aux_r(offs_t offset);
++	void aux_w(offs_t offset, uint8_t data);
 +
 +protected:
 +	virtual void device_start() override;
@@ -624,10 +767,19 @@
 +	void commit_sd_sector(uint32_t lba);
 +	void handle_sd_command();
 +	bool image_ready() const;
++	void reopen_mirror_log();
++	void emit_mirror_mem_write(offs_t address, uint8_t data);
++	void emit_mirror_io_write(offs_t port, uint8_t data);
++	void emit_mirror_line(const char *prefix, const char *region, uint16_t address, uint8_t data);
 +	void update_mman_mapping();
 +	bool resolve_ems_address(offs_t isa_address, uint32_t &psram_address) const;
 +
 +	uint8_t m_mman[0x10];
++	uint8_t m_aux_status;
++	uint8_t m_aux_key_ascii;
++	uint8_t m_aux_key_scancode;
++	uint8_t m_aux_key_flags;
++	uint16_t m_mirror_drop_count;
 +	uint8_t m_sd_scratch[5];
 +	uint8_t m_sd_config;
 +	uint8_t m_sd_cs;
@@ -648,7 +800,11 @@
 +	bool m_ems_window_installed;
 +	offs_t m_ems_window_base;
 +	offs_t m_ems_window_end;
++	memory_passthrough_handler m_video_mem_tap;
++	memory_passthrough_handler m_video_io_3b_tap;
++	memory_passthrough_handler m_video_io_3d_tap;
 +	std::fstream m_sd_image;
++	std::ofstream m_mirror_log;
 +	std::vector<uint8_t> m_psram;
 +};
 +
