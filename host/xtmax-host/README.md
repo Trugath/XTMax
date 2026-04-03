@@ -7,6 +7,7 @@ Current scope:
 - enumerate serial ports
 - reset the XTMax auxiliary host-link state
 - toggle the mirror-enabled feature flag
+- render a live terminal mirror of MDA/CGA text writes
 - queue keyboard events
 - inject plain text through BIOS-friendly ASCII/scancode pairs
 - send raw protocol lines for bring-up
@@ -39,6 +40,12 @@ Enable the mirror feature flag:
 cargo run --manifest-path host/xtmax-host/Cargo.toml -- --port /dev/ttyACM0 mirror true
 ```
 
+Run the live text-mode mirror:
+
+```bash
+cargo run --manifest-path host/xtmax-host/Cargo.toml -- --port /dev/ttyACM0 mirror-text
+```
+
 Inject a line of text:
 
 ```bash
@@ -53,4 +60,8 @@ cargo run --manifest-path host/xtmax-host/Cargo.toml -- --port /dev/ttyACM0 send
 
 ## Current Limitation
 
-This utility only drives the bootstrap USB command interface today. The actual screen-mirror event stream and renderer are not implemented yet.
+Current limitations:
+
+- only text-mode CGA/MDA mirroring is implemented
+- graphics modes are detected but not rendered yet
+- the mirror uses the current bootstrap line protocol rather than the future framed transport

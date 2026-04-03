@@ -338,6 +338,87 @@ inline void XTMax_PollUsbSerial() {
   }
 }
 
+inline bool XTMax_IsMirroredVideoAddress(uint32_t address) {
+  return (address >= 0xB0000 && address <= 0xB7FFF) ||
+         (address >= 0xB8000 && address <= 0xBFFFF);
+}
+
+inline bool XTMax_IsMirroredVideoPort(uint16_t port) {
+  return (port >= 0x3B0 && port <= 0x3BF) ||
+         (port >= 0x3D0 && port <= 0x3DF);
+}
+
+inline uint8_t XTMax_HexDigit(uint8_t value) {
+  value &= 0x0F;
+  return value < 10 ? static_cast<uint8_t>('0' + value)
+                    : static_cast<uint8_t>('A' + (value - 10));
+}
+
+inline void XTMax_EmitMirrorEvent(const char* line, uint8_t length) {
+  if (!xtmax.mirror_enabled || !xtmax.host_connected) {
+    return;
+  }
+
+  if (Serial.availableForWrite() < length) {
+    XTMax_RecordMirrorDrop(&xtmax, 1);
+    return;
+  }
+
+  Serial.write(reinterpret_cast<const uint8_t*>(line), length);
+}
+
+inline void XTMax_EmitMirrorMemWrite(uint32_t address, uint8_t value) {
+  char line[16];
+  const bool is_mda = address < 0xB8000;
+  const uint16_t offset = static_cast<uint16_t>(address & 0x7FFF);
+  line[0] = 'V';
+  line[1] = 'M';
+  line[2] = ' ';
+  line[3] = 'B';
+  line[4] = is_mda ? '0' : '8';
+  line[5] = '0';
+  line[6] = '0';
+  line[7] = ' ';
+  line[8] = XTMax_HexDigit(static_cast<uint8_t>(offset >> 12));
+  line[9] = XTMax_HexDigit(static_cast<uint8_t>(offset >> 8));
+  line[10] = XTMax_HexDigit(static_cast<uint8_t>(offset >> 4));
+  line[11] = XTMax_HexDigit(static_cast<uint8_t>(offset));
+  line[12] = ' ';
+  line[13] = XTMax_HexDigit(static_cast<uint8_t>(value >> 4));
+  line[14] = XTMax_HexDigit(value);
+  line[15] = '\n';
+  XTMax_EmitMirrorEvent(line, sizeof(line));
+}
+
+inline void XTMax_EmitMirrorIoWrite(uint16_t port, uint8_t value) {
+  char line[12];
+  line[0] = 'V';
+  line[1] = 'I';
+  line[2] = ' ';
+  line[3] = XTMax_HexDigit(static_cast<uint8_t>(port >> 12));
+  line[4] = XTMax_HexDigit(static_cast<uint8_t>(port >> 8));
+  line[5] = XTMax_HexDigit(static_cast<uint8_t>(port >> 4));
+  line[6] = XTMax_HexDigit(static_cast<uint8_t>(port));
+  line[7] = ' ';
+  line[8] = XTMax_HexDigit(static_cast<uint8_t>(value >> 4));
+  line[9] = XTMax_HexDigit(value);
+  line[10] = '\n';
+  XTMax_EmitMirrorEvent(line, 11);
+}
+
+inline uint8_t XTMax_SniffWriteData() {
+  GPIO7_DR = GPIO7_DATA_OUT_UNSCRAMBLE + MUX_ADDR_n_HIGH  + CHRDY_OUT_LOW + trigger_out;
+  GPIO8_DR = sd_pin_outputs + MUX_DATA_n_LOW + CHRDY_OE_n_HIGH + DATA_OE_n_HIGH;
+  delayNanoseconds(IO_WRITE_SETTLE_NS);
+  gpio6_int = GPIO6_DR;
+  return 0xFF & ADDRESS_DATA_GPIO6_UNSCRAMBLE;
+}
+
+inline void XTMax_RestoreSniffMux() {
+  GPIO7_DR = GPIO7_DATA_OUT_UNSCRAMBLE + MUX_ADDR_n_LOW  + CHRDY_OUT_LOW + trigger_out;
+  GPIO8_DR = sd_pin_outputs + MUX_DATA_n_HIGH + CHRDY_OE_n_HIGH + DATA_OE_n_HIGH;
+}
+
 // --------------------------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------------------------
 
@@ -747,6 +828,11 @@ inline void Mem_Write_Cycle()
 {
   isa_address = ADDRESS_DATA_GPIO6_UNSCRAMBLE;
 
+  if (XTMax_IsMirroredVideoAddress(isa_address)) {
+    data_in = XTMax_SniffWriteData();
+    XTMax_EmitMirrorMemWrite(isa_address, data_in);
+  }
+
   Region region = XTMax_GetRegion(&xtmax, isa_address);
   switch (region) {
     case EmsWindow:
@@ -814,6 +900,13 @@ inline void Mem_Write_Cycle()
       break;
 
     default:
+      if (XTMax_IsMirroredVideoAddress(isa_address)) {
+        while ( (gpio9_int&0xF0) != 0xF0 ) {
+          gpio6_int = GPIO6_DR;
+          gpio9_int = GPIO9_DR;
+        }
+        XTMax_RestoreSniffMux();
+      }
       break;
   }
 }
@@ -893,6 +986,17 @@ inline void IO_Write_Cycle()
 
     GPIO7_DR = GPIO7_DATA_OUT_UNSCRAMBLE + MUX_ADDR_n_LOW  + CHRDY_OUT_LOW + trigger_out;
     GPIO8_DR = sd_pin_outputs + MUX_DATA_n_HIGH + CHRDY_OE_n_HIGH + DATA_OE_n_HIGH;
+  }
+  else if (XTMax_IsMirroredVideoPort(isa_address)) {
+    data_in = XTMax_SniffWriteData();
+    XTMax_EmitMirrorIoWrite(static_cast<uint16_t>(isa_address), data_in);
+
+    while ( (gpio9_int&0xF0) != 0xF0 ) {
+      gpio6_int = GPIO6_DR;
+      gpio9_int = GPIO9_DR;
+    }
+
+    XTMax_RestoreSniffMux();
   }
   else if ((isa_address&0x0FF8)==AUX_BASE) {
     GPIO7_DR = GPIO7_DATA_OUT_UNSCRAMBLE + MUX_ADDR_n_HIGH  + CHRDY_OUT_LOW + trigger_out;

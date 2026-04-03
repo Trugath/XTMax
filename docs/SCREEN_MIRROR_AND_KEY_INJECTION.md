@@ -225,6 +225,9 @@ Implemented commands:
 - `M <0|1>`
 - `D <count>`
 - `R`
+- streamed mirror events:
+  - `VM <B000|B800> <offset_hex> <value_hex>`
+  - `VI <port_hex> <value_hex>`
 
 Meaning:
 
@@ -232,6 +235,8 @@ Meaning:
 - `M` enables or disables the mirror feature flag
 - `D` increments the mirror-drop counter
 - `R` resets the auxiliary key queue and clears overflow
+- `VM` reports a mirrored display-memory write
+- `VI` reports a mirrored display I/O-port write
 
 Examples:
 
@@ -240,6 +245,8 @@ K 13 28 0
 K 88 45 1
 M 1
 R
+VM B800 0000 58
+VI 03D8 09
 ```
 
 This bootstrap protocol is intentionally minimal and is expected to be replaced by the framed packet transport described below.

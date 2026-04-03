@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::io::{ErrorKind, Read, Write};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -8,15 +8,21 @@ use crate::keyboard::KeyEvent;
 
 pub struct XtmaxLink {
     port: Box<dyn SerialPort>,
+    read_buffer: Vec<u8>,
 }
 
 impl XtmaxLink {
     pub fn open(path: &str, baud: u32) -> Result<Self> {
-        let port = serialport::new(path, baud)
+        let mut port = serialport::new(path, baud)
             .timeout(Duration::from_millis(250))
             .open()
             .with_context(|| format!("failed to open serial port {path}"))?;
-        Ok(Self { port })
+        port.write_data_terminal_ready(true)
+            .context("failed to assert DTR on serial port")?;
+        Ok(Self {
+            port,
+            read_buffer: Vec::new(),
+        })
     }
 
     pub fn write_line(&mut self, line: &str) -> Result<()> {
@@ -49,6 +55,29 @@ impl XtmaxLink {
             "K {} {} {}",
             event.ascii, event.scancode, event.flags
         ))
+    }
+
+    pub fn read_line(&mut self) -> Result<Option<String>> {
+        let mut byte = [0u8; 1];
+        loop {
+            match self.port.read(&mut byte) {
+                Ok(0) => return Ok(None),
+                Ok(_) => {
+                    if byte[0] == b'\n' {
+                        let line = String::from_utf8_lossy(&self.read_buffer).into_owned();
+                        self.read_buffer.clear();
+                        return Ok(Some(line));
+                    }
+                    if byte[0] != b'\r' {
+                        self.read_buffer.push(byte[0]);
+                    }
+                }
+                Err(error) if error.kind() == ErrorKind::TimedOut => {
+                    return Ok(None);
+                }
+                Err(error) => return Err(error).context("failed to read from serial port"),
+            }
+        }
     }
 }
 

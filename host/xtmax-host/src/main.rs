@@ -1,10 +1,12 @@
 mod keyboard;
+mod mirror;
 mod serial_link;
 
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
 
 use keyboard::{KeyEvent, char_to_event, text_to_events};
+use mirror::TextMirror;
 use serial_link::{XtmaxLink, list_serial_ports};
 
 #[derive(Parser, Debug)]
@@ -32,6 +34,7 @@ enum Command {
     Ports,
     ResetAux,
     Mirror(MirrorArgs),
+    MirrorText,
     DropCount(DropCountArgs),
     SendKey(SendKeyArgs),
     Type(TypeArgs),
@@ -79,7 +82,10 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Ports => cmd_ports(),
         Command::ResetAux => with_link(&connection, |link| link.reset_aux()),
-        Command::Mirror(args) => with_link(&connection, |link| link.set_mirror_enabled(args.enabled)),
+        Command::Mirror(args) => {
+            with_link(&connection, |link| link.set_mirror_enabled(args.enabled))
+        }
+        Command::MirrorText => cmd_mirror_text(&connection),
         Command::DropCount(args) => {
             with_link(&connection, |link| link.record_mirror_drop(args.count))
         }
@@ -97,6 +103,28 @@ fn main() -> Result<()> {
             Ok(())
         }),
         Command::Raw(args) => with_link(&connection, |link| link.write_line(&args.line)),
+    }
+}
+
+fn cmd_mirror_text(connection: &ConnectionOptions) -> Result<()> {
+    let port = connection
+        .port
+        .as_deref()
+        .context("missing --port; use `xtmax-host ports` to discover candidate devices")?;
+    let mut link = XtmaxLink::open(port, connection.baud)?;
+    link.reset_aux()?;
+    link.set_mirror_enabled(true)?;
+
+    let mut mirror = TextMirror::new();
+    loop {
+        if let Some(line) = link.read_line()? {
+            if let Err(error) = mirror.apply_line(&line) {
+                eprintln!("ignoring malformed mirror event {line:?}: {error}");
+            }
+            mirror.render_if_due(false)?;
+        } else {
+            mirror.render_if_due(false)?;
+        }
     }
 }
 
