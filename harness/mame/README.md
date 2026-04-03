@@ -136,6 +136,12 @@ For a ROM service-loader regression, run:
 
 That presses `X` at the ROM prompt, loads a synthetic stage-1 payload from reserved SD sectors, asserts that the payload runs, and then confirms normal boot resumes afterward.
 
+The current synthetic stage is a real menu, not just a banner:
+- `S` boots from the XTMax SD path immediately
+- `F` tries floppy boot immediately
+- `D` runs a simple SD boot-sector diagnostic
+- `C`, `Esc`, or `Enter` return to the Boot ROM so normal boot can continue
+
 For a Boot ROM INT 13h storage regression, run:
 
 ```bash

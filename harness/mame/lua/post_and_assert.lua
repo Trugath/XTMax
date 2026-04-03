@@ -5,6 +5,9 @@ local timeout = tonumber(emu.subst_env("$XTMAX_MAME_ASSERT_TIMEOUT")) or 60
 local post_after = tonumber(emu.subst_env("$XTMAX_MAME_POST_AFTER")) or 0
 local post_text = emu.subst_env("$XTMAX_MAME_POST_CODED")
 local post_when_text = string.upper(emu.subst_env("$XTMAX_MAME_POST_WHEN_TEXT"))
+local post2_after = tonumber(emu.subst_env("$XTMAX_MAME_POST2_AFTER")) or 0
+local post2_text = emu.subst_env("$XTMAX_MAME_POST2_CODED")
+local post2_when_text = string.upper(emu.subst_env("$XTMAX_MAME_POST2_WHEN_TEXT"))
 
 local function decode_escapes(text)
   return text
@@ -15,6 +18,7 @@ local function decode_escapes(text)
 end
 
 post_text = decode_escapes(post_text)
+post2_text = decode_escapes(post2_text)
 
 local function split_expected(raw)
   local values = {}
@@ -110,15 +114,23 @@ local function main()
 
   local started = manager.machine.time
   local posted = false
+  local posted2 = false
 
   while (manager.machine.time - started).seconds < timeout do
     local combined = capture_text(space)
+    local elapsed = (manager.machine.time - started).seconds
 
     if not posted and post_text ~= "" and natkbd and natkbd.can_post then
-      local elapsed = (manager.machine.time - started).seconds
       if elapsed >= post_after and (post_when_text == "" or string.find(combined, post_when_text, 1, true)) then
         natkbd:post_coded(post_text)
         posted = true
+      end
+    end
+
+    if posted and not posted2 and post2_text ~= "" and natkbd and natkbd.can_post then
+      if elapsed >= post2_after and (post2_when_text == "" or string.find(combined, post2_when_text, 1, true)) then
+        natkbd:post_coded(post2_text)
+        posted2 = true
       end
     end
 

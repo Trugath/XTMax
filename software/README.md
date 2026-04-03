@@ -16,6 +16,13 @@ re-deploying the Teensy sketch. The address **must** be a multiple of 2048 bytes
 
 During the bootstrap path, the option ROM shows a small `X` prompt. Press `X` there to load the XTMax service stage from reserved sectors on the SD card.
 
+The current stage-1 service menu provides:
+
+- `S`: boot immediately from the XTMax SD card
+- `F`: boot immediately from floppy drive `A:`
+- `D`: run a simple SD boot-sector diagnostic
+- `C`, `Esc`, or `Enter`: return to the Boot ROM and continue the normal boot flow
+
 The current stage-1 loader contract is intentionally small:
 
 - sector 1: normal boot sector / MBR
