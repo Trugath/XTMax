@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 .DS_Store
 .venv/
+
+# Built DOS helper (run software/tools/build_mameromd.sh)
+software/tools/MROMD.COM

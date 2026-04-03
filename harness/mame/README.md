@@ -266,6 +266,21 @@ DOS_BOOT_FLOPPY=/path/to/dos-boot.img \
 - Loose ROM binaries can also be used from `harness/mame/roms/` or via `XTMAX_MAME_EXTRA_ROMPATH`, but MAME still expects the filenames it knows for that machine.
 - The two BIOS files currently in `../` are the `5160` pair, which also covers `ibm5155`.
 
+## Capturing ROMs from a real XT (XTMax + USB)
+
+The Teensy cannot read the ISA bus on its own. Firmware exposes a **ROM dump FIFO** at I/O `0x298`–`0x29A` (see [`firmware/teensy/IO_PORTS.md`](../../firmware/teensy/IO_PORTS.md)): a DOS helper reads shadowed ROM from memory and `OUT`s each byte; the host receives `Z`+hex lines over USB serial.
+
+1. Flash Teensy firmware that includes the dump ports (revision 17+ in `teensy.ino`).
+2. Build the DOS helper: `nasm -f bin -o MROMD.COM ../../software/tools/mameromd.asm`
+3. Copy `MROMD.COM` to the XT, boot DOS, connect USB with **DTR asserted** (normal for `pyserial` / `xtmax-host`).
+4. On the host: `pip install -r ../../scripts/requirements-mame-romdump.txt` then run:
+
+```bash
+python3 ../../scripts/mame_roms_via_teensy.py listen --port /dev/ttyACM0 --out ./roms --profile ibm5160-harness
+```
+
+Use `list-profiles` to see names. The `ibm5160-harness` profile matches the loose-file layout created by `common.sh` (`ibm5160/`, `cga/`, `isa_hdc/`). **Verify legally** that you may copy each ROM; the keyboard MCU image (`14166.bin`) is not obtainable via ISA memory reads and is skipped with a note.
+
 ## Layout
 
 - `bootstrap.sh`: install or detect MAME, then create local MAME config/state directories
