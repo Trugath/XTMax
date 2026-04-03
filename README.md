@@ -30,9 +30,9 @@ If you are trying to:
 
 ### Teensy firmware
 
-The primary firmware source is [`firmware/teensy/XTMax.ino`](./firmware/teensy/XTMax.ino).
+The primary firmware source is [`firmware/teensy/teensy.ino`](./firmware/teensy/teensy.ino).
 
-- Arduino IDE + Teensyduino: open `firmware/teensy/XTMax.ino`, select `Teensy 4.1`, and upload.
+- Arduino IDE + Teensyduino: open `firmware/teensy/teensy.ino`, select `Teensy 4.1`, and upload.
 - Optional CLI: `arduino-cli compile --fqbn teensy:avr:teensy41 firmware/teensy`
 
 ### Boot ROM

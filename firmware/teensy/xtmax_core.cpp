@@ -3,12 +3,21 @@
 namespace {
 
 constexpr uint16_t kMmanBase = 0x260;
+constexpr uint16_t kAuxBase = 0x290;
 constexpr uint32_t k2KiBPageShift = 11;
 constexpr uint32_t k2KiBPageCount = 512;
 constexpr uint32_t k64KiBPageCount = 16;
 constexpr uint32_t k64KiBConventionalLimit = 10;
 constexpr uint32_t k64KiBUpperMemoryLimit = 15;
 constexpr uint32_t k2KiBPer64KiB = 32;
+constexpr uint8_t kAuxStatusKeyAvailable = 0x01;
+constexpr uint8_t kAuxStatusOverflow = 0x02;
+constexpr uint8_t kAuxStatusMirrorEnabled = 0x04;
+constexpr uint8_t kAuxStatusHostConnected = 0x08;
+constexpr uint8_t kAuxControlClearOverflow = 0x01;
+constexpr uint8_t kAuxControlMirrorEnable = 0x02;
+constexpr uint8_t kAuxControlResetQueues = 0x04;
+constexpr uint8_t kAuxVersion = 0x01;
 
 }  // namespace
 
@@ -37,6 +46,13 @@ void XTMax_InitState(XtmaxState* state,
   }
   state->ems_base_segment = 0;
   state->umb_base_segment = 0;
+  state->key_queue_head = 0;
+  state->key_queue_tail = 0;
+  state->key_queue_count = 0;
+  state->host_connected = false;
+  state->mirror_enabled = false;
+  state->aux_overflow = false;
+  state->mirror_drop_count = 0;
 
   if (!disable_bootrom_map) {
     const uint32_t start = bootrom_addr >> k2KiBPageShift;
@@ -178,4 +194,94 @@ void XTMax_WriteMmanRegister(XtmaxState* state, uint16_t io_address, uint8_t val
     default:
       break;
   }
+}
+
+uint8_t XTMax_ReadAuxRegister(const XtmaxState* state, uint16_t io_address) {
+  switch (io_address) {
+    case kAuxBase + 0: {
+      uint8_t status = 0;
+      if (state->key_queue_count) {
+        status |= kAuxStatusKeyAvailable;
+      }
+      if (state->aux_overflow) {
+        status |= kAuxStatusOverflow;
+      }
+      if (state->mirror_enabled) {
+        status |= kAuxStatusMirrorEnabled;
+      }
+      if (state->host_connected) {
+        status |= kAuxStatusHostConnected;
+      }
+      return status;
+    }
+    case kAuxBase + 1:
+      return state->key_queue_count ? state->key_queue[state->key_queue_head].ascii : 0;
+    case kAuxBase + 2:
+      return state->key_queue_count ? state->key_queue[state->key_queue_head].scancode : 0;
+    case kAuxBase + 3:
+      return state->key_queue_count ? state->key_queue[state->key_queue_head].flags : 0;
+    case kAuxBase + 5:
+      return state->mirror_drop_count & 0xFF;
+    case kAuxBase + 6:
+      return state->mirror_drop_count >> 8;
+    case kAuxBase + 7:
+      return kAuxVersion;
+    default:
+      return 0xFF;
+  }
+}
+
+void XTMax_WriteAuxRegister(XtmaxState* state, uint16_t io_address, uint8_t value) {
+  switch (io_address) {
+    case kAuxBase + 0:
+      if (value & kAuxControlClearOverflow) {
+        state->aux_overflow = false;
+      }
+      state->mirror_enabled = (value & kAuxControlMirrorEnable) != 0;
+      if (value & kAuxControlResetQueues) {
+        state->key_queue_head = 0;
+        state->key_queue_tail = 0;
+        state->key_queue_count = 0;
+      }
+      break;
+    case kAuxBase + 4:
+      if (state->key_queue_count) {
+        state->key_queue_head = (state->key_queue_head + 1) % 16;
+        --state->key_queue_count;
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+bool XTMax_QueueHostKeyEvent(XtmaxState* state,
+                             uint8_t ascii,
+                             uint8_t scancode,
+                             uint8_t flags) {
+  if (state->key_queue_count >= 16) {
+    state->aux_overflow = true;
+    return false;
+  }
+
+  XtmaxKeyEvent* event = &state->key_queue[state->key_queue_tail];
+  event->ascii = ascii;
+  event->scancode = scancode;
+  event->flags = flags;
+  state->key_queue_tail = (state->key_queue_tail + 1) % 16;
+  ++state->key_queue_count;
+  return true;
+}
+
+void XTMax_SetHostConnected(XtmaxState* state, bool connected) {
+  state->host_connected = connected;
+}
+
+void XTMax_SetMirrorEnabled(XtmaxState* state, bool enabled) {
+  state->mirror_enabled = enabled;
+}
+
+void XTMax_RecordMirrorDrop(XtmaxState* state, uint16_t dropped_events) {
+  state->aux_overflow = true;
+  state->mirror_drop_count = static_cast<uint16_t>(state->mirror_drop_count + dropped_events);
 }

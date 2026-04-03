@@ -4,7 +4,7 @@ This repository mixes source code, generated artifacts, third-party legacy toolc
 
 ## Primary Sources
 
-- [`firmware/teensy/XTMax.ino`](../firmware/teensy/XTMax.ino): main Teensy 4.1 firmware.
+- [`firmware/teensy/teensy.ino`](../firmware/teensy/teensy.ino): main Teensy 4.1 firmware.
 - [`software/bootrom/bootrom.asm`](../software/bootrom/bootrom.asm): BIOS extension ROM source for SD boot and INT 13h services.
 - [`software/sd`](../software/sd): DOS SD driver source used for `XTSD.SYS`.
 - [`software/emm`](../software/emm): EMS driver source used for `XTEMM.EXE`.

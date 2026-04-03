@@ -6,7 +6,7 @@ import unittest
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-FIRMWARE = REPO_ROOT / "firmware" / "teensy" / "XTMax.ino"
+FIRMWARE = REPO_ROOT / "firmware" / "teensy" / "teensy.ino"
 BOOTROM = REPO_ROOT / "software" / "bootrom" / "bootrom.asm"
 BOOTROM_UTILS = REPO_ROOT / "software" / "bootrom" / "utils.inc"
 

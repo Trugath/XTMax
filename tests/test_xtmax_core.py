@@ -56,6 +56,28 @@ class XtmaxCoreTests(unittest.TestCase):
               assert(XTMax_ReadMmanRegister(&state, 0x260 + 1) == 0x12);
               assert(XTMax_ReadMmanRegister(&state, 0x260 + 15) == Ram);
 
+              assert(XTMax_ReadAuxRegister(&state, 0x290 + 0) == 0x00);
+              XTMax_SetHostConnected(&state, true);
+              assert((XTMax_ReadAuxRegister(&state, 0x290 + 0) & 0x08) == 0x08);
+              XTMax_SetMirrorEnabled(&state, true);
+              assert((XTMax_ReadAuxRegister(&state, 0x290 + 0) & 0x04) == 0x04);
+              assert(XTMax_QueueHostKeyEvent(&state, 'X', 0x2d, 0x01));
+              assert((XTMax_ReadAuxRegister(&state, 0x290 + 0) & 0x01) == 0x01);
+              assert(XTMax_ReadAuxRegister(&state, 0x290 + 1) == 'X');
+              assert(XTMax_ReadAuxRegister(&state, 0x290 + 2) == 0x2d);
+              assert(XTMax_ReadAuxRegister(&state, 0x290 + 3) == 0x01);
+              XTMax_WriteAuxRegister(&state, 0x290 + 4, 0x01);
+              assert((XTMax_ReadAuxRegister(&state, 0x290 + 0) & 0x01) == 0x00);
+              XTMax_RecordMirrorDrop(&state, 3);
+              assert((XTMax_ReadAuxRegister(&state, 0x290 + 0) & 0x02) == 0x02);
+              assert(XTMax_ReadAuxRegister(&state, 0x290 + 5) == 3);
+              XTMax_WriteAuxRegister(&state, 0x290 + 0, 0x01);
+              assert((XTMax_ReadAuxRegister(&state, 0x290 + 0) & 0x02) == 0x00);
+              XTMax_QueueHostKeyEvent(&state, 'A', 0x1e, 0x00);
+              XTMax_WriteAuxRegister(&state, 0x290 + 0, 0x04);
+              assert((XTMax_ReadAuxRegister(&state, 0x290 + 0) & 0x01) == 0x00);
+              assert(XTMax_ReadAuxRegister(&state, 0x290 + 7) == 0x01);
+
               XtmaxState no_rom{};
               XTMax_InitState(&no_rom, false, true, 0xCE000, 0x2000);
               assert(XTMax_GetRegion(&no_rom, 0x0000) == Ram);

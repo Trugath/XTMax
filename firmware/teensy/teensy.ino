@@ -1,6 +1,6 @@
 //
 //
-//  File Name   :  XTMax.ino
+//  File Name   :  teensy.ino
 //  Used on     : 
 //  Authors     :  Ted Fried, MicroCore Labs
 //                 Matthieu Bucchianeri
@@ -97,6 +97,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "bootrom.h"
 #include "xtmax_core.h"
@@ -195,6 +196,7 @@
 #define EMS_MAX_SIZE       (16*1024*1024)
 
 #define SD_BASE            0x280    // Must be a multiple of 8.
+#define AUX_BASE           0x290    // Must be a multiple of 8.
 #define SD_CONFIG_BYTE     0
 
 // Set to 1 so XTMax does NOT decode 0x00000-0x9FFFF (motherboard RAM owns POST + DOS conventional).
@@ -252,6 +254,8 @@ uint32_t  sd_spi_dataout =0;
 uint8_t   sd_scratch_register[6] = {0, 0, 0, 0, 0, 0};
 uint16_t  sd_requested_timeout = 0;
 elapsedMillis sd_timeout;
+char usb_command_buffer[64] = {0};
+uint8_t usb_command_length = 0;
 
 DMAMEM  uint8_t  internal_RAM1[0x7A000];  /*   0 - 488KB */
         uint8_t  internal_RAM2[0x76000];  /* 488 - 640KB + 320KB UMB */
@@ -260,6 +264,79 @@ uint8_t psram_cs =0;
 
 XtmaxState xtmax;
 MemResponse (&XTMax_MEM_Response_Array)[16] = xtmax.mem_response;
+
+inline void XTMax_ProcessUsbCommand(const char* command_line) {
+  if (command_line[0] == '\0') {
+    return;
+  }
+
+  if (command_line[0] == 'R' && command_line[1] == '\0') {
+    XTMax_WriteAuxRegister(&xtmax, AUX_BASE + 0, 0x05);
+    return;
+  }
+
+  char* parse_end = nullptr;
+  if (command_line[0] == 'M' && command_line[1] == ' ') {
+    const unsigned long enabled = strtoul(command_line + 2, &parse_end, 0);
+    if (parse_end != command_line + 2) {
+      XTMax_SetMirrorEnabled(&xtmax, enabled != 0);
+    }
+    return;
+  }
+
+  if (command_line[0] == 'D' && command_line[1] == ' ') {
+    const unsigned long dropped = strtoul(command_line + 2, &parse_end, 0);
+    if (parse_end != command_line + 2) {
+      XTMax_RecordMirrorDrop(&xtmax, static_cast<uint16_t>(dropped & 0xFFFF));
+    }
+    return;
+  }
+
+  if (command_line[0] == 'K' && command_line[1] == ' ') {
+    const char* cursor = command_line + 2;
+    const unsigned long ascii = strtoul(cursor, &parse_end, 0);
+    if (parse_end == cursor || *parse_end != ' ') {
+      return;
+    }
+    cursor = parse_end + 1;
+    const unsigned long scancode = strtoul(cursor, &parse_end, 0);
+    if (parse_end == cursor || *parse_end != ' ') {
+      return;
+    }
+    cursor = parse_end + 1;
+    const unsigned long flags = strtoul(cursor, &parse_end, 0);
+    if (parse_end == cursor) {
+      return;
+    }
+    XTMax_QueueHostKeyEvent(&xtmax,
+                            static_cast<uint8_t>(ascii & 0xFF),
+                            static_cast<uint8_t>(scancode & 0xFF),
+                            static_cast<uint8_t>(flags & 0xFF));
+  }
+}
+
+inline void XTMax_PollUsbSerial() {
+  XTMax_SetHostConnected(&xtmax, Serial && Serial.dtr());
+
+  while (Serial.available() > 0) {
+    const char incoming = static_cast<char>(Serial.read());
+    if (incoming == '\r') {
+      continue;
+    }
+    if (incoming == '\n') {
+      usb_command_buffer[usb_command_length] = '\0';
+      XTMax_ProcessUsbCommand(usb_command_buffer);
+      usb_command_length = 0;
+      continue;
+    }
+    if (usb_command_length + 1u < sizeof(usb_command_buffer)) {
+      usb_command_buffer[usb_command_length++] = incoming;
+    } else {
+      usb_command_length = 0;
+      XTMax_RecordMirrorDrop(&xtmax, 1);
+    }
+  }
+}
 
 // --------------------------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------------------------
@@ -342,7 +419,7 @@ void setup() {
 
   //noInterrupts();                                   // Disable Teensy interupts
  
-  //Serial.begin(9600);
+  Serial.begin(115200);
 
   // Patch the memory map (optional ROM + SD MMIO at end of ROM window).
   static_assert((BOOTROM_ADDR & 0x7FF) == 0);
@@ -759,6 +836,16 @@ inline void IO_Read_Cycle()
 
     GPIO8_DR = sd_pin_outputs + MUX_DATA_n_HIGH + CHRDY_OE_n_HIGH + DATA_OE_n_HIGH;
   }
+  else if ((isa_address&0x0FF8)==AUX_BASE) {
+    isa_data_out = XTMax_ReadAuxRegister(&xtmax, isa_address);
+
+    GPIO7_DR = GPIO7_DATA_OUT_UNSCRAMBLE + MUX_ADDR_n_LOW  + CHRDY_OUT_LOW + trigger_out;
+    GPIO8_DR = sd_pin_outputs + MUX_DATA_n_HIGH + CHRDY_OE_n_HIGH + DATA_OE_n_LOW;
+
+    while ( (gpio9_int&0xF0) != 0xF0 ) { gpio9_int = GPIO9_DR; }
+
+    GPIO8_DR = sd_pin_outputs + MUX_DATA_n_HIGH + CHRDY_OE_n_HIGH + DATA_OE_n_HIGH;
+  }
   else if ((isa_address&0x0FF8)==SD_BASE) {   // Location of SD Card registers
     switch (isa_address)  {
       case SD_BASE+0:  sd_spi_dataout = 0xff; SD_SPI_Cycle(); isa_data_out = sd_spi_datain; break;
@@ -800,6 +887,24 @@ inline void IO_Write_Cycle()
     XTMax_WriteMmanRegister(&xtmax, isa_address, data_in);
 
     while ( (gpio9_int&0xF0) != 0xF0 ) {   // Wait here until cycle is complete
+      gpio6_int = GPIO6_DR;
+      gpio9_int = GPIO9_DR;
+    }
+
+    GPIO7_DR = GPIO7_DATA_OUT_UNSCRAMBLE + MUX_ADDR_n_LOW  + CHRDY_OUT_LOW + trigger_out;
+    GPIO8_DR = sd_pin_outputs + MUX_DATA_n_HIGH + CHRDY_OE_n_HIGH + DATA_OE_n_HIGH;
+  }
+  else if ((isa_address&0x0FF8)==AUX_BASE) {
+    GPIO7_DR = GPIO7_DATA_OUT_UNSCRAMBLE + MUX_ADDR_n_HIGH  + CHRDY_OUT_LOW + trigger_out;
+    GPIO8_DR = sd_pin_outputs + MUX_DATA_n_LOW + CHRDY_OE_n_HIGH + DATA_OE_n_HIGH;
+
+    delayNanoseconds(IO_WRITE_SETTLE_NS);
+    gpio6_int = GPIO6_DR;
+    data_in = 0xFF & ADDRESS_DATA_GPIO6_UNSCRAMBLE;
+
+    XTMax_WriteAuxRegister(&xtmax, isa_address, data_in);
+
+    while ( (gpio9_int&0xF0) != 0xF0 ) {
       gpio6_int = GPIO6_DR;
       gpio9_int = GPIO9_DR;
     }
@@ -858,6 +963,7 @@ void loop() {
 #endif
 
   while (1) {
+      XTMax_PollUsbSerial();
      
       gpio6_int = GPIO6_DR;
       gpio9_int = GPIO9_DR;

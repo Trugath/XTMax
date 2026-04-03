@@ -2,7 +2,7 @@
 
 ## Build
 
-- **Arduino IDE** with **Teensyduino** add-on: open `XTMax.ino`, select **Teensy 4.1**, upload.
+- **Arduino IDE** with **Teensyduino** add-on: open `teensy.ino`, select **Teensy 4.1**, upload.
 - **Optional CLI:** `arduino-cli compile --fqbn teensy:avr:teensy41 .` from this directory (requires Teensy board package).
 
 ## MS-DOS driver floppy (.img)
@@ -20,7 +20,7 @@ The generated image is a driver/data disk (not DOS bootable) until system files 
 
 ## Performance tuning (firmware)
 
-Timing `#define`s are at the top of `XTMax.ino` (`SD_SPI_BIT_TIME_NS`, `IO_WRITE_SETTLE_NS`, `MUX_DATA_SWITCH_NS`, `PSRAM_CONFIGURE_DELAY_US`, `XTMAX_PSRAM_EARLY_CHRDY`). If **SD/EMS** glitch after changes, increase SPI delay or set `XTMAX_PSRAM_EARLY_CHRDY` to `0`.
+Timing `#define`s are at the top of `teensy.ino` (`SD_SPI_BIT_TIME_NS`, `IO_WRITE_SETTLE_NS`, `MUX_DATA_SWITCH_NS`, `PSRAM_CONFIGURE_DELAY_US`, `XTMAX_PSRAM_EARLY_CHRDY`). If **SD/EMS** glitch after changes, increase SPI delay or set `XTMAX_PSRAM_EARLY_CHRDY` to `0`.
 
 ## Configuration
 
