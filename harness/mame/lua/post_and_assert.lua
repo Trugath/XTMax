@@ -103,13 +103,16 @@ local function main()
   end
 
   local natkbd = manager.machine.natkeyboard
-  if natkbd then
-    natkbd.in_use = true
-  end
 
   if startup_wait > 0 and not emu.wait(startup_wait) then
     write_result("FAIL", "Emulation stopped before startup wait completed.\n")
     return
+  end
+
+  -- Take over the keyboard only after POST. Enabling natkeyboard too early
+  -- causes IBM XT-class machines to fail the keyboard self-test (error 301).
+  if natkbd then
+    natkbd.in_use = true
   end
 
   local started = manager.machine.time
