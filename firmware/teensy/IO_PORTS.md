@@ -11,9 +11,14 @@ If the machine **hangs or the screen goes blank right after the RAM test**, the 
 | `0x260`–`0x26F` | Memory manager (EMS frame pointers, EMS base, UMB commit). `MMAN_BASE` must stay a multiple of 16. |
 | `0x280`–`0x287` | SD card bit-bang registers (`SD_BASE` multiple of 8). Boot ROM in `bootrom.h` uses these ports. |
 | `0x290`–`0x297` | Auxiliary remote-control registers for host link state, keyboard event queue, and mirror status. |
+| `0x298` | **ROM dump data (write):** each `OUT` pushes one byte into a FIFO streamed to the host over USB as lines `Z` + hex + CRLF (requires **DTR high** / host connected). |
+| `0x299` | **ROM dump status (read):** returns free FIFO space (0–255); DOS helper should throttle until this is at least ~16 before each burst. |
+| `0x29A` | **ROM dump flush (write):** any write drains the FIFO to USB and sends a `ZEND` CRLF line so the host knows the region finished. |
 | Option ROM | `BOOTROM_ADDR` `0xCE000` (see `bootrom.h`). |
 
-If you change `MMAN_BASE` or `SD_BASE`, update both the Teensy sketch **and** regenerate `bootrom.h` from matching option-ROM source. If you change the auxiliary block, keep the host and DOS-side helper in sync with the new register map.
+If you change `MMAN_BASE` or `SD_BASE`, update both the Teensy sketch **and** regenerate `bootrom.h` from matching option-ROM source. If you change the auxiliary block or the `0x298`–`0x29A` dump FIFO, keep the host tool [scripts/mame_roms_via_teensy.py](../../scripts/mame_roms_via_teensy.py) and [software/tools/mameromd.asm](../../software/tools/mameromd.asm) in sync.
+
+The Teensy cannot read the ISA bus on its own: **ROM dumping requires a DOS program on the XT** to read shadowed ROM from memory and `OUT` each byte to `0x298`.
 
 ## IBM 5155 notes
 
@@ -36,5 +41,6 @@ Per AST documentation and third-party configuration guides, the SixPakPlus **jum
 - [ ] No other device decodes `0x260`–`0x26F`.
 - [ ] No other device decodes `0x280`–`0x287`.
 - [ ] No other device decodes `0x290`–`0x297`.
+- [ ] No other device decodes `0x298`–`0x29F` (ROM dump FIFO).
 - [ ] No option ROM overlap at `0xCE000`–`0xCFFFF` for a second card.
 - [ ] SixPakPlus jumpers documented for COM/LPT so they do not overlap required motherboard ports.

@@ -69,6 +69,9 @@
 // - Default XTMAX_DISABLE_BOOTROM_MAP=1 (option ROM was still on unless user edited)
 // - Optional XTMAX_SKIP_PSRAM_INIT for boards without PSRAM / EMS
 //
+// Revision 17 04/03/2026
+// - ROM dump FIFO at 0x298-0x29A: DOS reads shadow ROMs, bytes stream to USB as Z<hex> lines
+//
 //------------------------------------------------------------------------
 //
 // Copyright (c) 2024 Ted Fried
@@ -197,6 +200,7 @@
 
 #define SD_BASE            0x280    // Must be a multiple of 8.
 #define AUX_BASE           0x290    // Must be a multiple of 8.
+#define DUMP_PORT_BASE     0x298    // 8-byte decode block; see IO_PORTS.md (ROM dump to USB).
 #define SD_CONFIG_BYTE     0
 
 // Set to 1 so XTMax does NOT decode 0x00000-0x9FFFF (motherboard RAM owns POST + DOS conventional).
@@ -257,7 +261,21 @@ elapsedMillis sd_timeout;
 char usb_command_buffer[64] = {0};
 uint8_t usb_command_length = 0;
 
-DMAMEM  uint8_t  internal_RAM1[0x7A000];  /*   0 - 488KB */
+// ---------------------------------------------------------------------------
+// ROM dump FIFO: PC (DOS helper) OUTs each byte to 0x298; host reads USB lines
+// "Z" + hex payload + newline. 0x299 IN = free FIFO space (throttle). 0x29A OUT
+// flushes a partial line and emits ZEND CRLF for the host parser.
+// Ring lives in DMAMEM so default RAM stays within Teensy limits.
+// ---------------------------------------------------------------------------
+constexpr uint16_t kDumpRingSize = 4096;
+uint16_t dump_head = 0;
+uint16_t dump_tail = 0;
+uint16_t dump_overflow_events = 0;
+uint8_t dump_emit_buf[32];
+uint8_t dump_emit_count = 0;
+
+DMAMEM  uint8_t  internal_RAM1[0x7A000];
+DMAMEM  uint8_t  dump_ring[kDumpRingSize];  /*   0 - 488KB */
         uint8_t  internal_RAM2[0x76000];  /* 488 - 640KB + 320KB UMB */
 
 uint8_t psram_cs =0;
@@ -352,6 +370,84 @@ inline uint8_t XTMax_HexDigit(uint8_t value) {
   value &= 0x0F;
   return value < 10 ? static_cast<uint8_t>('0' + value)
                     : static_cast<uint8_t>('A' + (value - 10));
+}
+
+inline uint16_t XTMax_DumpBytesQueued() {
+  return static_cast<uint16_t>((dump_head + kDumpRingSize - dump_tail) % kDumpRingSize);
+}
+
+inline uint16_t XTMax_DumpSpaceFree() {
+  const uint16_t used = XTMax_DumpBytesQueued();
+  return static_cast<uint16_t>(kDumpRingSize - 1u - used);
+}
+
+inline void XTMax_DumpPushByte(uint8_t value) {
+  if (XTMax_DumpSpaceFree() == 0) {
+    if (dump_overflow_events < 0xFFFF) {
+      ++dump_overflow_events;
+    }
+    return;
+  }
+  dump_ring[dump_head] = value;
+  dump_head = static_cast<uint16_t>((dump_head + 1u) % kDumpRingSize);
+}
+
+inline void XTMax_DumpEmitHexLine(const uint8_t* data, uint8_t byte_count) {
+  if (!Serial || byte_count == 0) {
+    return;
+  }
+  char line[4 + 64 + 2];
+  line[0] = 'Z';
+  uint16_t pos = 1;
+  for (uint8_t i = 0; i < byte_count; ++i) {
+    line[pos++] = static_cast<char>(XTMax_HexDigit(data[i] >> 4));
+    line[pos++] = static_cast<char>(XTMax_HexDigit(data[i]));
+  }
+  line[pos++] = '\r';
+  line[pos++] = '\n';
+  Serial.write(reinterpret_cast<const uint8_t*>(line), pos);
+}
+
+inline void XTMax_DumpFlushEmitStaging() {
+  if (dump_emit_count > 0) {
+    XTMax_DumpEmitHexLine(dump_emit_buf, dump_emit_count);
+    dump_emit_count = 0;
+  }
+}
+
+inline void XTMax_DrainDumpRingToStaging() {
+  constexpr uint8_t kChunk = 24;
+  while (dump_emit_count < kChunk && XTMax_DumpBytesQueued() > 0) {
+    dump_emit_buf[dump_emit_count++] = dump_ring[dump_tail];
+    dump_tail = static_cast<uint16_t>((dump_tail + 1u) % kDumpRingSize);
+  }
+  if (dump_emit_count >= kChunk) {
+    XTMax_DumpEmitHexLine(dump_emit_buf, kChunk);
+    dump_emit_count = 0;
+  }
+}
+
+inline void XTMax_ServiceDumpUsb() {
+  if (!Serial || !xtmax.host_connected) {
+    return;
+  }
+  for (uint8_t iter = 0; iter < 8; ++iter) {
+    if (Serial.availableForWrite() < 80) {
+      return;
+    }
+    XTMax_DrainDumpRingToStaging();
+    if (dump_emit_count == 0 && XTMax_DumpBytesQueued() == 0) {
+      return;
+    }
+  }
+}
+
+inline void XTMax_DumpEndMarker() {
+  XTMax_DrainDumpRingToStaging();
+  XTMax_DumpFlushEmitStaging();
+  if (Serial && xtmax.host_connected) {
+    Serial.print("ZEND\r\n");
+  }
 }
 
 inline void XTMax_EmitMirrorEvent(const char* line, uint8_t length) {
@@ -939,6 +1035,21 @@ inline void IO_Read_Cycle()
 
     GPIO8_DR = sd_pin_outputs + MUX_DATA_n_HIGH + CHRDY_OE_n_HIGH + DATA_OE_n_HIGH;
   }
+  else if ((isa_address&0x0FF8)==DUMP_PORT_BASE) {
+    if (isa_address == DUMP_PORT_BASE + 1) {
+      const uint16_t free_bytes = XTMax_DumpSpaceFree();
+      isa_data_out = free_bytes > 255 ? 255 : static_cast<uint8_t>(free_bytes);
+    } else {
+      isa_data_out = 0xFF;
+    }
+
+    GPIO7_DR = GPIO7_DATA_OUT_UNSCRAMBLE + MUX_ADDR_n_LOW  + CHRDY_OUT_LOW + trigger_out;
+    GPIO8_DR = sd_pin_outputs + MUX_DATA_n_HIGH + CHRDY_OE_n_HIGH + DATA_OE_n_LOW;
+
+    while ( (gpio9_int&0xF0) != 0xF0 ) { gpio9_int = GPIO9_DR; }
+
+    GPIO8_DR = sd_pin_outputs + MUX_DATA_n_HIGH + CHRDY_OE_n_HIGH + DATA_OE_n_HIGH;
+  }
   else if ((isa_address&0x0FF8)==SD_BASE) {   // Location of SD Card registers
     switch (isa_address)  {
       case SD_BASE+0:  sd_spi_dataout = 0xff; SD_SPI_Cycle(); isa_data_out = sd_spi_datain; break;
@@ -1016,6 +1127,28 @@ inline void IO_Write_Cycle()
     GPIO7_DR = GPIO7_DATA_OUT_UNSCRAMBLE + MUX_ADDR_n_LOW  + CHRDY_OUT_LOW + trigger_out;
     GPIO8_DR = sd_pin_outputs + MUX_DATA_n_HIGH + CHRDY_OE_n_HIGH + DATA_OE_n_HIGH;
   }
+  else if ((isa_address&0x0FF8)==DUMP_PORT_BASE) {
+    GPIO7_DR = GPIO7_DATA_OUT_UNSCRAMBLE + MUX_ADDR_n_HIGH  + CHRDY_OUT_LOW + trigger_out;
+    GPIO8_DR = sd_pin_outputs + MUX_DATA_n_LOW + CHRDY_OE_n_HIGH + DATA_OE_n_HIGH;
+
+    delayNanoseconds(IO_WRITE_SETTLE_NS);
+    gpio6_int = GPIO6_DR;
+    data_in = 0xFF & ADDRESS_DATA_GPIO6_UNSCRAMBLE;
+
+    if (isa_address == DUMP_PORT_BASE) {
+      XTMax_DumpPushByte(data_in);
+    } else if (isa_address == DUMP_PORT_BASE + 2) {
+      XTMax_DumpEndMarker();
+    }
+
+    while ( (gpio9_int&0xF0) != 0xF0 ) {
+      gpio6_int = GPIO6_DR;
+      gpio9_int = GPIO9_DR;
+    }
+
+    GPIO7_DR = GPIO7_DATA_OUT_UNSCRAMBLE + MUX_ADDR_n_LOW  + CHRDY_OUT_LOW + trigger_out;
+    GPIO8_DR = sd_pin_outputs + MUX_DATA_n_HIGH + CHRDY_OE_n_HIGH + DATA_OE_n_HIGH;
+  }
   else if ((isa_address&0x0FF8)==SD_BASE) {   // Location of SD Card registers
     GPIO7_DR = GPIO7_DATA_OUT_UNSCRAMBLE + MUX_ADDR_n_HIGH  + CHRDY_OUT_LOW + trigger_out;
     GPIO8_DR = sd_pin_outputs + MUX_DATA_n_LOW + CHRDY_OE_n_HIGH + DATA_OE_n_HIGH;
@@ -1068,7 +1201,8 @@ void loop() {
 
   while (1) {
       XTMax_PollUsbSerial();
-     
+      XTMax_ServiceDumpUsb();
+
       gpio6_int = GPIO6_DR;
       gpio9_int = GPIO9_DR;
            if ((gpio9_int&0x80000010)==0)  IO_Read_Cycle();  // Isolate and check AEN and IO Rd/Wr
