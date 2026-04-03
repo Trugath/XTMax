@@ -29,7 +29,15 @@ XTMax is an 8-bit ISA card built around a Teensy 4.1. This repo contains:
 
 Run from the repository root unless noted.
 
-### Host-side tests
+### All default automated tests
+
+Runs Python tests, Rust tests, patched-MAME XTMax regressions (if `harness/mame/artifacts/mame-src-mame0264/mame` exists), a short stock-MAME smoke run, and optionally DOS driver tests when `DOS_BOOT_FLOPPY` is set:
+
+```bash
+./scripts/run_all_tests.sh
+```
+
+### Host-side tests (individual)
 
 ```bash
 python3 -m unittest discover -s tests -p 'test_*.py'
