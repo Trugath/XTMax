@@ -134,7 +134,7 @@ For a ROM service-loader regression, run:
 ./harness/mame/run-xtmax-menu-tests.sh
 ```
 
-That presses `X` at the ROM prompt, loads a synthetic stage-1 payload from reserved SD sectors, asserts that the payload runs, and then confirms normal boot resumes afterward.
+That presses `X` at the `Press X for XTMax BootROM` prompt, loads a synthetic stage-1 payload from reserved SD sectors, asserts that the payload runs, and then confirms normal boot resumes afterward.
 
 The current synthetic stage is a real menu, not just a banner:
 - `S` boots from the XTMax SD path immediately

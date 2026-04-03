@@ -84,7 +84,7 @@
 +
 +ROM_START( xtmax )
 +	ROM_REGION(0x00800, "bootrom", 0)
-+	ROM_LOAD("xtmax_bootrom.bin", 0x000000, 0x000800, CRC(975337d1) SHA1(b8b2d6e48ba7c18b71b2a743ac3629737eaca64a))
++	ROM_LOAD("xtmax_bootrom.bin", 0x000000, 0x000800, CRC(4f379c5c) SHA1(e180db4a69bae780d787f9b77ced33bff2187e84))
 +ROM_END
 +
 +DEFINE_DEVICE_TYPE(ISA8_XTMAX, xtmax_device, "xtmax", "XTMax phase-2 adapter")

@@ -1574,10 +1574,10 @@ debug_handler:
 
 welcome_msg     db 'XTMax BootROM', 0xD, 0xA
                 db 0
-init_ok_msg     db 'SD Card initialized successfully', 0xD, 0xA, 0
-init_error_msg  db 'SD Card failed to initialize', 0xD, 0xA, 0
+init_ok_msg     db 'SD init OK', 0xD, 0xA, 0
+init_error_msg  db 'SD init FAIL', 0xD, 0xA, 0
 %ifdef USE_BOOTSTRAP
-service_hint_msg db 'X', 0xD, 0xA, 0
+service_hint_msg db 'Press X for XTMax BootROM', 0xD, 0xA, 0
 service_fail_msg db 'NO', 0
 no_boot_msg     db 'No boot media', 0xD, 0xA, 0
 no_part_msg     db 'No active partition found', 0xD, 0xA, 0

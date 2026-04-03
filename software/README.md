@@ -14,7 +14,7 @@ re-deploying the Teensy sketch. The address **must** be a multiple of 2048 bytes
 
 ### Boot-time ROM services
 
-During the bootstrap path, the option ROM shows a small `X` prompt. Press `X` there to load the XTMax service stage from reserved sectors on the SD card.
+During the bootstrap path, the option ROM prints `Press X for XTMax BootROM`. Press `X` there to load the XTMax service stage from reserved sectors on the SD card.
 
 The current stage-1 service menu provides:
 
